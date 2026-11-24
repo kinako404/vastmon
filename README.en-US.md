@@ -8,6 +8,8 @@ It is a single Go binary and a single SQLite file: no database server, no Node, 
 
 > The web interface is currently in Chinese only. This guide explains every screen, and browser translation works well on it.
 
+![Machine list: ranked by estimated daily cost, bandwidth prices colored cheap / fair / expensive, favorites highlighted](docs/images/machines.png)
+
 ---
 
 ## Why
@@ -50,6 +52,30 @@ vastmon polls the offers every two minutes, applies your filters, and ranks mach
 - Startup downloader finished or failed
 - Balance below a threshold, or not enough to last N hours at the current burn rate
 - Today's spend above a threshold
+
+## Screenshots
+
+> All machines, instances and bills in the screenshots are demo data.
+
+**Instances** — cards modeled after vast.ai's, with the cost breakdown, port mappings, live startup-downloader progress and the latest benchmark verdict.
+
+![Instances](docs/images/instances.png)
+
+**Renting** and **benchmarking** — pick a template and disk size, optionally start the downloader after boot; the benchmark compares measured throughput with the baseline for the same model and power tier to tell real cards from fakes.
+
+<p align="center">
+  <img src="docs/images/rent.png" alt="Rent dialog" width="40%">
+  &nbsp;
+  <img src="docs/images/bench.png" alt="Benchmark report" width="55%">
+</p>
+
+**Web terminal and files** — tabbed terminals next to a file browser that uploads, downloads, edits text and previews images and videos.
+
+![Web terminal](docs/images/terminal.png)
+
+**Startup downloader** — several download lists to switch between, with Hugging Face and Civitai support.
+
+![Startup downloader configuration](docs/images/downloads.png)
 
 ## Quick start
 

@@ -8,6 +8,8 @@ vastmon 是一个自托管的 [vast.ai](https://cloud.vast.ai/) 监控与开机�
 
 > 面板界面目前只有中文。
 
+![机器列表：按估算日费排序，流量费按便宜 / 一般 / 贵着色，收藏的机器标绿](docs/images/machines.png)
+
 ---
 
 ## 为什么要做它
@@ -50,6 +52,30 @@ vastmon 每隔两分钟抓一次报价，按你的条件过滤，并把「单价
 - 启动下载器完成或失败
 - 余额低于设定值，或按当前花费撑不过 N 小时
 - 今天花费超过设定额度
+
+## 界面预览
+
+> 截图里的机器、实例、账单都是演示数据。
+
+**实例**：仿 vast 官网的实例卡片，带费用明细、端口映射、启动下载器的实时进度和算力检测结论。
+
+![实例页](docs/images/instances.png)
+
+**开机** 与 **算力检测**：开机时选模板、磁盘，可以勾「开机后自动启动下载器」；算力检测把实测值和同型号、同功耗档的基准对比，判断真假卡。
+
+<p align="center">
+  <img src="docs/images/rent.png" alt="开机弹窗" width="40%">
+  &nbsp;
+  <img src="docs/images/bench.png" alt="算力检测报告" width="55%">
+</p>
+
+**网页终端与文件**：多标签终端，旁边是文件浏览器，可以上传下载、在线编辑、预览图片和视频。
+
+![网页终端](docs/images/terminal.png)
+
+**启动下载配置**：几套下载列表随时切换，支持 Hugging Face 和 Civitai。
+
+![启动下载配置](docs/images/downloads.png)
 
 ## 快速开始
 

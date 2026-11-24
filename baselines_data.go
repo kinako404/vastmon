@@ -1,7 +1,7 @@
 package main
 
 // builtinBaselinesVersion 改了内置数据就加一，启动时会换掉库里的内置行。
-const builtinBaselinesVersion = 2
+const builtinBaselinesVersion = 3
 
 // 规格来源（2026-11 查证）：
 const (
@@ -25,11 +25,12 @@ const (
 const smNote = "SM 数由 CUDA 核心数推算（Ampere/Ada/Blackwell/Hopper 每 SM 128 核，Volta 64 核）"
 
 // builtinBaselines 是内置的性能基准：规格来自上面的来源，算力版本来自 NVIDIA CUDA GPUs 表。
-// 实测参考只放真测过的：RTX PRO 6000 WS 600W 那组是用户在一张正常卡上测的（2026-11）。
+// 实测参考只放真测过的，而且必须是 vastmon 算力检测（bench.py）测出来的——别的脚本测法不同，数会差很多：
+// RTX PRO 6000 WS 600W 那组是在一张正常卡上用面板的算力检测测的（2026-11）。
 var builtinBaselines = []Baseline{
 	{GPUName: "RTX PRO 6000 WS", FullName: "NVIDIA RTX PRO 6000 Blackwell Workstation Edition", PowerW: 600, SMs: 188, CC: "12.0",
-		VRAMGB: 96, MemBWGBs: 1792, FP32Spec: 125, FP16: 170.6, BF16: 179.1, FP32: 30.3, CopyGBs: 1466.4,
-		MeasuredSource: "用户在正常卡上实测（2026-11）", SpecSource: srcPro6000WS + " " + srcCC, Note: "24064 CUDA 核；" + smNote},
+		VRAMGB: 96, MemBWGBs: 1792, FP32Spec: 125, FP16: 407.4, BF16: 426.5, FP32: 73.7, CopyGBs: 1467.1,
+		MeasuredSource: "vastmon 算力检测实测，正常卡 600W（2026-11）", SpecSource: srcPro6000WS + " " + srcCC, Note: "24064 CUDA 核；" + smNote},
 	{GPUName: "RTX PRO 6000 Max-Q", FullName: "NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition", PowerW: 300, SMs: 188, CC: "12.0",
 		VRAMGB: 96, MemBWGBs: 1792, SpecSource: srcPro6000MaxQ + " " + srcCC, Note: "和 WS 同一颗 GB202，功耗 300W；" + smNote},
 	{GPUName: "RTX PRO 6000 S", FullName: "NVIDIA RTX PRO 6000 Blackwell Server Edition", PowerW: 600, SMs: 188, CC: "12.0",
