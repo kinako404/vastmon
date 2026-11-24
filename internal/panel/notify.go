@@ -43,13 +43,14 @@ type notifyConfig struct {
 	SiteURL      string  `json:"site_url"`
 	Instance     bool    `json:"instance"`      // 实例开机 / 运行 / 停止 / 离线 / 销毁
 	Download     bool    `json:"download"`      // 启动下载器结束
+	Scripts      bool    `json:"scripts"`       // 开机脚本跑完 / 失败
 	BalanceBelow float64 `json:"balance_below"` // 余额低于多少美元提醒，0 = 不提醒
 	BalanceHours float64 `json:"balance_hours"` // 按当前花费撑不过几小时提醒，0 = 不提醒
 	DailySpend   float64 `json:"daily_spend"`   // 今天（UTC 日，vast 账单）花费超过多少美元提醒，0 = 不提醒
 }
 
 func (s *Server) notifyConfig() (notifyConfig, error) {
-	c := notifyConfig{Instance: true, Download: true, BalanceBelow: 10, BalanceHours: 12}
+	c := notifyConfig{Instance: true, Download: true, Scripts: true, BalanceBelow: 10, BalanceHours: 12}
 	_, err := s.st.Get("notify", &c)
 	return c, err
 }

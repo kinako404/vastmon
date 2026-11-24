@@ -446,3 +446,16 @@ tr.muted td { color: var(--muted); }
 .preset-bar .spacer { flex: 1; }
 .preset-bar button.tab { padding: 3px 12px; border-radius: 14px; }
 .preset-bar button.tab.active { background: var(--accent); border-color: var(--accent); color: var(--accent-text); cursor: default; }
+
+/* startup scripts */
+.sc-step { border-top: 1px solid var(--border); padding: 3px 0; }
+.sc-step > summary { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; cursor: pointer; }
+.sc-log { max-height: 260px; overflow: auto; margin: 4px 0 6px; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+.sc-editor { width: 100%; min-height: 320px; font-size: 13px; tab-size: 2; }
+.sc-files { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+.sc-var { display: grid; grid-template-columns: minmax(160px, 260px) minmax(200px, 1fr) auto; gap: 8px; margin-bottom: 6px; align-items: center; }
+.sc-pick { grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) 70px; }
+.sc-help { margin: 0 0 10px; font-size: 13px; }
+.sc-help li { margin: 2px 0; }
+dialog.dialog.sc-dialog { width: min(1100px, 96vw); max-width: 96vw; }
+.sc-editor { white-space: pre; overflow-x: auto; }

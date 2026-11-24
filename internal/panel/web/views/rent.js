@@ -72,6 +72,14 @@ export function openRentDialog(m, onRented, opts = {}) {
     const noTmux = h('input', { type: 'checkbox', checked: defaults.no_tmux !== false });
     const autoDL = h('input', { type: 'checkbox', checked: defaults.auto_download !== false });
     const autoHint = h('p', { class: 'hint tight' }, '读取下载配置…');
+    const autoSc = h('input', { type: 'checkbox', checked: defaults.auto_scripts !== false });
+    const scHint = h('p', { class: 'hint tight' }, '读取开机脚本…');
+    get('scripts').then((sc) => {
+      const on = sc.scripts.filter((x) => x.auto);
+      mount(scHint, on.length
+        ? `实例跑起来后按顺序运行：${on.map((x) => x.name).join('、')}。在“设置 → 开机脚本”里改。`
+        : h('span', { class: 'cost-warn' }, '还没有勾“开机自动”的脚本，到“设置 → 开机脚本”添加。'));
+    }, (err) => mount(scHint, h('span', { class: 'cost-bad' }, `读不到开机脚本：${err.message}`)));
     const dlSet = h('select', { hidden: true });
     let dlSize = 0;
     let dlCfg = null;
@@ -160,6 +168,7 @@ export function openRentDialog(m, onRented, opts = {}) {
             no_tmux: noTmux.checked,
             auto_download: autoDL.checked,
             download_profile: Number(dlSet.value) || 0,
+            auto_scripts: autoSc.checked,
             max_dph: p.total,
           });
           busy = false;
@@ -174,7 +183,8 @@ export function openRentDialog(m, onRented, opts = {}) {
             ]),
             h('p', { class: 'hint' }, '实例要几分钟拉镜像、启动，状态在“实例”页查看。',
               noTmux.checked ? '跑起来后面板会自动关掉登录自动 tmux。' : '',
-              autoDL.checked && !res.auto_download_error ? '跑起来后会自动启动下载器，进度在实例卡片上。' : ''),
+              autoDL.checked && !res.auto_download_error ? '跑起来后会自动启动下载器，进度在实例卡片上。' : '',
+              autoSc.checked && !res.auto_download_error ? '开机脚本也会自动运行。' : ''),
             res.auto_download_error ? h('div', { class: 'error' }, res.auto_download_error) : null,
             h('div', { class: 'toolbar end' },
               h('a', { class: 'button primary', href: '#/instances', onclick: () => dialog.close() }, '查看实例'),
@@ -209,7 +219,9 @@ export function openRentDialog(m, onRented, opts = {}) {
         noTmux, '关闭登录自动 tmux（推荐）'),
       h('p', { class: 'hint tight' }, '实例跑起来后面板通过 SSH 建 ~/.no_auto_tmux；想要 tmux 时自己输入 tmux 即可。'),
       h('div', { class: 'toolbar tight' }, h('label', { class: 'field inline' }, autoDL, '开机后自动启动下载器，用'), dlSet),
-      autoHint),
+      autoHint,
+      h('label', { class: 'field inline' }, autoSc, '开机后自动运行脚本'),
+      scHint),
     priceBox,
     msg,
     h('div', { class: 'toolbar end' }, cancel, confirm));

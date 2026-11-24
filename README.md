@@ -47,9 +47,16 @@ vastmon 每隔两分钟抓一次报价，按你的条件过滤，并把「单价
 - 开机时可以勾「开机后自动启动下载器」，机器一跑起来就开始下
 - 面向 ComfyUI：自动同步 `input` 目录（你上传的图片和视频），停止 / 销毁前先把它拉回本地备份
 
+**开机脚本**
+- 在设置里写几段 bash 脚本，开机后自动在实例上按顺序运行，或者在实例卡片上随时点「运行脚本」
+- 程序、配置等文件存在面板自己这里，运行前自动传到实例；每个文件还有一个带随机令牌的下载链接
+- token、密码放进「变量」，只存在服务器上，运行时作为环境变量交给脚本
+- 实例卡片上实时显示每个脚本的输出和退出码，可以取消，超时自动停止
+
 **浏览器通知**（需要 HTTPS）
 - 实例开机、运行、停止、离线、销毁
 - 启动下载器完成或失败
+- 开机脚本跑完或失败
 - 余额低于设定值，或按当前花费撑不过 N 小时
 - 今天花费超过设定额度
 
@@ -200,6 +207,28 @@ server {
 
 实例上没有 aria2 时会自动 `apt-get install`。「ComfyUI input 同步」只对 ComfyUI 有用：开机时把 `backups/input.tar.gz` 解到工作目录的 `input/`，停止 / 重建 / 销毁前把实例上的 `input/` 拉回来合并（只增加和更新，不删除）。
 
+### 开机脚本
+
+「设置 → 开机脚本」分三块：
+
+- **脚本**：每个脚本是一段 bash，以 root 身份在工作目录里运行；勾「开机自动」的会在开机弹窗勾了「开机后自动运行脚本」时、实例一跑起来就按列表顺序运行。实例卡片上的「运行脚本」可以随时挑几个来跑。非 0 退出算失败，超过设定的分钟数（默认 30）会被停止。
+- **变量**：`KEY = 值`，运行时作为环境变量交给每个脚本。适合放 token、密码；值只存在服务器上，页面只显示末 4 位。
+- **文件库**：把程序、配置文件上传到面板。脚本勾上「附带」的文件，会在运行前传到实例的 `/opt/vastmon/files/`（同样的文件不重复传）。每个文件还有一个不用登录的下载链接 `https://你的站点/f/<令牌>/<文件名>`，可以在别处 `curl` 下载；令牌随时可以更换。
+
+脚本里还能用这些变量：`VASTMON_FILES`（附带文件的目录）、`VASTMON_WORKDIR`（工作目录）、`VASTMON_INSTANCE_ID`、`VASTMON_LABEL`、`VASTMON_GPU`、`VASTMON_SITE`。
+
+例子：把 ComfyUI 生成的图片自动转发到 Telegram（用 [filebot](https://github.com/kinako404/filebot)）——把 filebot 的二进制传进文件库，变量里填 `TG_TOKEN`、`TG_CHAT_ID`，脚本大致是：
+
+```bash
+set -euo pipefail
+install -m 755 "$VASTMON_FILES/filebot-linux-amd64" /usr/local/bin/filebot
+export FILEBOT_TG_TOKEN="$TG_TOKEN" FILEBOT_TG_CHAT_ID="$TG_CHAT_ID"
+filebot check -d "$VASTMON_WORKDIR/output"
+setsid nohup filebot run -d "$VASTMON_WORKDIR/output" > /var/log/filebot.log 2>&1 < /dev/null &
+```
+
+vast 的容器里没有 systemd；要常驻的程序可以像上面这样后台运行，镜像里有 supervisor 的话也可以写一个 `/etc/supervisor/conf.d/*.conf` 交给它管（崩了会自动拉起）。
+
 ### 浏览器通知
 
 用 HTTPS 地址打开面板，进「设置 → 浏览器通知」，点「在这个浏览器开启通知」并允许。每个浏览器、每台设备都要单独开启一次；之后即使没开着面板也能收到。通知走浏览器厂商的推送服务：Chrome 用 Google FCM（在国内可能收不到），Edge 用微软，Firefox 用 Mozilla。
@@ -207,7 +236,7 @@ server {
 ## 安全须知
 
 - **vast API key 能开机、能花钱。** 它只保存在服务器的 `vastmon.env` 里，不会发给浏览器。
-- **`vastmon.db` 很敏感**：里面有面板密码的哈希、登录会话、SSH 私钥的密码（如果设了）、HF / Civitai token、推送用的 VAPID 私钥。备份时请妥善保管，不要公开。
+- **`vastmon.db` 很敏感**：里面有面板密码的哈希、登录会话、SSH 私钥的密码（如果设了）、HF / Civitai token、开机脚本的变量、推送用的 VAPID 私钥；文件库在数据目录的 `files/` 下。备份时请妥善保管，不要公开。
 - 登录失败同一 IP 15 分钟 5 次、全局 30 次会锁 15 分钟；所有写请求都必须带 `X-Requested-With` 头，防跨站提交。
 - 文件浏览器返回的文件都带 `Content-Security-Policy: sandbox`，实例上的 HTML / SVG 不能在面板的域名下运行脚本。
 - 服务以独立的 `vastmon` 用户运行，systemd 加了只读系统、禁止提权等限制。
@@ -239,6 +268,7 @@ internal/panel/       面板本体（Go）：
   bench.go bench.py baselines*.go   算力检测与性能基准库
   term.go files.go sshpool.go ssh_settings.go   网页终端、文件浏览、SSH
   downloads*.go comfy_input.go      启动下载器、ComfyUI input 同步
+  scripts.go            开机脚本、变量、文件库
   notify.go webpush.go billing.go   浏览器通知、账单
   auth.go store.go web.go           登录、SQLite、HTTP 路由
   web/                  前端（原生 JS，go:embed 打包）

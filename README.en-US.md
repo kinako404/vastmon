@@ -47,9 +47,16 @@ vastmon polls the offers every two minutes, applies your filters, and ranks mach
 - Tick "start the downloader after boot" when renting and the download begins as soon as the machine is up
 - ComfyUI-specific: syncs the `input` folder (your uploaded images and videos) to new instances, and pulls it back into a local backup before stop / recycle / destroy
 
+**Startup scripts**
+- Write bash scripts in the settings; they run on the instance in order after boot, or whenever you click "run scripts" on an instance card
+- Programs and config files are stored in the panel itself and pushed to the instance before a script runs; every file also gets a download link with a random token
+- Put tokens and passwords in *variables*: they stay on the server and reach scripts as environment variables
+- The instance card shows each script's live output and exit code; scripts can be cancelled and are stopped on timeout
+
 **Browser notifications** (HTTPS required)
 - Instance created, running, stopped, offline, destroyed
 - Startup downloader finished or failed
+- Startup scripts finished or failed
 - Balance below a threshold, or not enough to last N hours at the current burn rate
 - Today's spend above a threshold
 
@@ -200,6 +207,28 @@ Under Settings → 启动下载配置 (download configuration), create one or mo
 
 aria2 is installed with `apt-get` if the instance does not have it. *ComfyUI input sync* only makes sense for ComfyUI: on start it unpacks `backups/input.tar.gz` into `input/` under the working directory, and before stop / recycle / destroy it pulls the instance's `input/` back and merges it in (adding and updating, never deleting).
 
+### Startup scripts (开机脚本)
+
+Settings → 开机脚本 has three parts:
+
+- **Scripts** — each is a piece of bash run as root in the working directory. Scripts marked *run after boot* (开机自动) run in list order as soon as the instance is up, when 开机后自动运行脚本 (run scripts after boot) is ticked in the rent dialog; 运行脚本 (run scripts) on an instance card runs any of them on demand. A non-zero exit counts as a failure, and a script is stopped after its timeout (30 minutes by default).
+- **Variables** — `KEY = value` pairs handed to every script as environment variables. Use them for tokens and passwords; values stay on the server and the page shows only the last 4 characters.
+- **File library** — upload programs and config files to the panel. Files attached to a script are pushed to `/opt/vastmon/files/` on the instance before it runs (unchanged files are not sent again). Every file also has a download link that needs no login, `https://your-site/f/<token>/<name>`, for use elsewhere; the token can be renewed at any time.
+
+Scripts can also use `VASTMON_FILES` (where attached files are), `VASTMON_WORKDIR` (the working directory), `VASTMON_INSTANCE_ID`, `VASTMON_LABEL`, `VASTMON_GPU` and `VASTMON_SITE`.
+
+Example: forward every image ComfyUI generates to Telegram with [filebot](https://github.com/kinako404/filebot) — upload the filebot binary to the file library, set `TG_TOKEN` and `TG_CHAT_ID` as variables, and use a script along these lines:
+
+```bash
+set -euo pipefail
+install -m 755 "$VASTMON_FILES/filebot-linux-amd64" /usr/local/bin/filebot
+export FILEBOT_TG_TOKEN="$TG_TOKEN" FILEBOT_TG_CHAT_ID="$TG_CHAT_ID"
+filebot check -d "$VASTMON_WORKDIR/output"
+setsid nohup filebot run -d "$VASTMON_WORKDIR/output" > /var/log/filebot.log 2>&1 < /dev/null &
+```
+
+vast containers have no systemd: run long-lived programs in the background as above, or, if the image ships supervisor, drop a `/etc/supervisor/conf.d/*.conf` so it restarts them when they crash.
+
 ### Browser notifications (浏览器通知)
 
 Open the panel at its HTTPS address, go to Settings → 浏览器通知 and click 在这个浏览器开启通知 (enable notifications in this browser). Each browser and device is enabled separately; after that notifications arrive even with the panel closed. Delivery goes through the browser vendor's push service: Chrome uses Google FCM (may be unreachable from mainland China), Edge uses Microsoft's and Firefox uses Mozilla's.
@@ -207,7 +236,7 @@ Open the panel at its HTTPS address, go to Settings → 浏览器通知 and clic
 ## Security notes
 
 - **Your vast API key can rent machines and spend credit.** It lives only in `vastmon.env` on the server and is never sent to the browser.
-- **`vastmon.db` is sensitive**: it holds the panel password hash, sessions, the SSH key passphrase (if set), HF / Civitai tokens and the VAPID private key used for push. Keep backups private.
+- **`vastmon.db` is sensitive**: it holds the panel password hash, sessions, the SSH key passphrase (if set), HF / Civitai tokens, startup-script variables and the VAPID private key used for push; the file library lives in `files/` under the data directory. Keep backups private.
 - Sign-in is locked for 15 minutes after 5 failures from one IP or 30 in total; every write request must carry an `X-Requested-With` header to block cross-site form posts.
 - Files served by the file browser carry `Content-Security-Policy: sandbox`, so HTML or SVG on an instance cannot run scripts on the panel's origin.
 - The service runs as its own `vastmon` user with a read-only system, no privilege escalation and other systemd restrictions.
@@ -239,6 +268,7 @@ internal/panel/       the panel (Go):
   bench.go bench.py baselines*.go   benchmark and baseline database
   term.go files.go sshpool.go ssh_settings.go   web terminal, file browser, SSH
   downloads*.go comfy_input.go      startup downloader, ComfyUI input sync
+  scripts.go            startup scripts, variables, file library
   notify.go webpush.go billing.go   browser notifications, billing
   auth.go store.go web.go           sign-in, SQLite, HTTP routes
   web/                  front end (plain JS, embedded with go:embed)

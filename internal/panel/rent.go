@@ -21,6 +21,7 @@ type rentDefaults struct {
 	NoTmux       *bool   `json:"no_tmux,omitempty"`       // nil = 默认关掉自动 tmux
 	AutoDownload *bool   `json:"auto_download,omitempty"` // nil = 默认开机后启动下载器
 	DownloadSet  int     `json:"download_profile,omitempty"`
+	AutoScripts  *bool   `json:"auto_scripts,omitempty"` // nil = 默认开机后运行开机脚本
 }
 
 var templateHashRE = regexp.MustCompile(`^[0-9a-f]{32}$`)
@@ -79,6 +80,7 @@ type rentRequest struct {
 	NoTmux       *bool   `json:"no_tmux"`          // 开机后关掉登录自动 tmux；不传 = 关
 	AutoDownload bool    `json:"auto_download"`    // 实例跑起来后自动启动下载器
 	DownloadSet  int     `json:"download_profile"` // 用哪套下载配置，0 = 默认
+	AutoScripts  bool    `json:"auto_scripts"`     // 实例跑起来后运行勾了“开机自动”的脚本
 }
 
 func (s *Server) rent(w http.ResponseWriter, r *http.Request) {
@@ -172,7 +174,17 @@ func (s *Server) rent(w http.ResponseWriter, r *http.Request) {
 			log.Printf("实例 %d %s", id, autoMsg)
 		}
 	}
-	if err := s.st.Set("rent_defaults", rentDefaults{TemplateHash: req.TemplateHash, Disk: req.Disk, Label: req.Label, NoTmux: &noTmux, AutoDownload: &req.AutoDownload, DownloadSet: req.DownloadSet}); err != nil {
+	if req.AutoScripts {
+		if _, err := s.createScriptJob(id, nil, true); err != nil {
+			msg := "没能安排开机脚本：" + err.Error()
+			log.Printf("实例 %d %s", id, msg)
+			if autoMsg != "" {
+				autoMsg += "；"
+			}
+			autoMsg += msg
+		}
+	}
+	if err := s.st.Set("rent_defaults", rentDefaults{TemplateHash: req.TemplateHash, Disk: req.Disk, Label: req.Label, NoTmux: &noTmux, AutoDownload: &req.AutoDownload, DownloadSet: req.DownloadSet, AutoScripts: &req.AutoScripts}); err != nil {
 		log.Printf("保存开机默认值失败: %v", err)
 	}
 	writeJSON(w, map[string]any{"instance_id": id, "offer_id": o.ID, "dph": o.Dph, "auto_download_error": autoMsg})

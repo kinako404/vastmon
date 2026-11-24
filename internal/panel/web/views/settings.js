@@ -3,6 +3,7 @@ import { get, put, post, currentSession, loginHash } from '../lib/api.js';
 import { copyText } from '../lib/dialog.js';
 import { baselinesSection } from './baselines.js';
 import { downloadsSection } from './dlconfig.js';
+import { scriptsSection } from './scriptsconfig.js';
 import { notifySections } from './notify.js';
 
 // SSH key used by the panel to log in to instances (benchmarks). The key and
@@ -156,6 +157,7 @@ export async function settingsView(ctx) {
       h('div', { class: 'toolbar' }, testSelect, testBtn),
       testBox),
     downloadsSection(),
+    scriptsSection(),
     baselinesSection());
 
   try {

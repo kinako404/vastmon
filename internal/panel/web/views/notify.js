@@ -9,7 +9,7 @@ import { fmtTime, fmtAgo } from '../lib/format.js';
 // browser even when no panel tab is open.
 
 const KIND = {
-  instance: '实例', 'instance-bad': '实例异常', download: '下载器', balance: '余额', spend: '今日花费', daily: '每日消费', test: '测试',
+  instance: '实例', 'instance-bad': '实例异常', download: '下载器', balance: '余额', spend: '今日花费', script: '开机脚本', daily: '每日消费', test: '测试',
 };
 
 function b64uToBytes(s) {
@@ -216,6 +216,7 @@ export function notifySections() {
 
     const inst = h('input', { type: 'checkbox', checked: c.instance });
     const dl = h('input', { type: 'checkbox', checked: c.download });
+    const sc = h('input', { type: 'checkbox', checked: c.scripts });
     const below = h('input', { type: 'number', min: '0', step: 'any', value: c.balance_below ? String(c.balance_below) : '', placeholder: '不提醒' });
     const hours = h('input', { type: 'number', min: '0', step: 'any', value: c.balance_hours ? String(c.balance_hours) : '', placeholder: '不提醒' });
     const spend = h('input', { type: 'number', min: '0', step: 'any', value: c.daily_spend ? String(c.daily_spend) : '', placeholder: '不提醒' });
@@ -236,13 +237,14 @@ export function notifySections() {
         onsubmit: (e) => {
           e.preventDefault();
           saveConfig({
-            ...data.config, instance: inst.checked, download: dl.checked, balance_below: Number(below.value) || 0,
+            ...data.config, instance: inst.checked, download: dl.checked, scripts: sc.checked, balance_below: Number(below.value) || 0,
             balance_hours: Number(hours.value) || 0, daily_spend: Number(spend.value) || 0,
           }, save, evMsg);
         },
       },
       h('label', { class: 'field inline' }, inst, '实例开机、运行起来、停止、离线 / 退出、销毁'),
       h('label', { class: 'field inline' }, dl, '启动下载器下完 / 失败'),
+      h('label', { class: 'field inline' }, sc, '开机脚本跑完 / 失败'),
       h('div', { class: 'form-grid wide' },
         field('余额低于 $ 时提醒', below, '没恢复就每 6 小时再提醒一次'),
         field('按现在的花费撑不过几小时提醒', hours, '余额 ÷ 所有实例现在每小时的花费'),

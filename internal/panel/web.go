@@ -32,6 +32,7 @@ type Server struct {
 	bill billingCache
 	pool sshPool
 	dl   dlManager
+	sc   scriptManager
 	// inputMu 让 input 备份一次只合并一个。
 	inputMu sync.Mutex
 
@@ -106,6 +107,15 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/push/unsubscribe", s.auth.require(s.unsubscribePush))
 	mux.HandleFunc("DELETE /api/push/subs/{sid}", s.auth.require(s.deletePushSub))
 	mux.HandleFunc("POST /api/push/test", s.auth.require(s.testPush))
+	mux.HandleFunc("GET /api/scripts", s.auth.require(s.scriptsGet))
+	mux.HandleFunc("PUT /api/scripts", s.auth.require(s.scriptsPut))
+	mux.HandleFunc("POST /api/scripts/files", s.auth.require(s.uploadScriptFile))
+	mux.HandleFunc("DELETE /api/scripts/files/{name}", s.auth.require(s.deleteScriptFile))
+	mux.HandleFunc("POST /api/scripts/files/{name}/token", s.auth.require(s.renewFileToken))
+	mux.HandleFunc("GET /api/scripts/jobs", s.auth.require(s.scriptJobs))
+	mux.HandleFunc("POST /api/scripts/jobs/{jid}/cancel", s.auth.require(s.cancelScripts))
+	mux.HandleFunc("POST /api/instances/{id}/scripts", s.auth.require(s.startScripts))
+	mux.HandleFunc("GET /f/{token}/{name}", s.publicFile)
 	mux.HandleFunc("GET /api/settings/ssh", s.auth.require(s.sshSettings))
 	mux.HandleFunc("PUT /api/settings/ssh", s.auth.require(s.putSSHSettings))
 	mux.HandleFunc("POST /api/settings/ssh/test", s.auth.require(s.testSSH))

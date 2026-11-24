@@ -79,7 +79,7 @@ func OpenStore(path string, grace int64) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema + favoritesSchema + blacklistSchema + benchmarksSchema + hostKeysSchema + setupSchema + baselinesSchema + downloadsSchema + notifySchema); err != nil {
+	if _, err := db.Exec(schema + favoritesSchema + blacklistSchema + benchmarksSchema + hostKeysSchema + setupSchema + baselinesSchema + downloadsSchema + notifySchema + scriptsSchema); err != nil {
 		return nil, err
 	}
 	if err := migrate(db); err != nil {

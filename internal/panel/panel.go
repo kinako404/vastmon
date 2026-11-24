@@ -135,6 +135,8 @@ func Main(v string) {
 	go app.setupLoop(ctx)
 	app.downloadInit(ctx)
 	go app.downloadLoop(ctx)
+	app.scriptsInit()
+	go app.scriptsLoop(ctx)
 	go app.notifyLoop(ctx)
 	srv := &http.Server{Addr: *addr, Handler: app.routes()}
 	go func() {

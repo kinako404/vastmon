@@ -6,6 +6,7 @@ import { openDialog, confirmDialog, copyText } from '../lib/dialog.js';
 import { marksFrom, emptyMarks, markButtons, openMarkDialog } from '../lib/marks.js';
 import { summaryLine, report, powerBadge, asBaseline } from '../lib/bench.js';
 import { jobPanel, latestJobs, isActive, openDownloadDialog } from '../lib/downloads.js';
+import { scriptJobPanel, latestScriptJobs, isActive as scriptActive, openScriptsDialog } from '../lib/scripts.js';
 
 const POLL_MS = 20000;
 const DL_POLL_MS = 2000;
@@ -142,6 +143,10 @@ export async function instancesView(ctx) {
   const dlBoxes = new Map();
   const dlFolds = new Set();
   let dlTimer = 0;
+  let scJobs = new Map();
+  const scBoxes = new Map();
+  const scFolds = new Set();
+  const scOpen = new Set();
   const onMarks = (res) => { marks = marksFrom(res); render(); };
   let billErr = null;
   let tab = '';
@@ -157,15 +162,17 @@ export async function instancesView(ctx) {
   async function refresh() {
     clearTimeout(timer);
     try {
-      const [d, b, fv, bm, bl, dj] = await Promise.all([
+      const [d, b, fv, bm, bl, dj, sj] = await Promise.all([
         get('instances', signal),
         get('billing', signal).then((v) => [v, null], (e) => (isAbort(e) ? Promise.reject(e) : [null, e])),
         get('blacklist', signal).catch((e) => (isAbort(e) ? Promise.reject(e) : null)),
         get('benchmarks', signal).catch((e) => (isAbort(e) ? Promise.reject(e) : null)),
         get('baselines', signal).catch((e) => (isAbort(e) ? Promise.reject(e) : null)),
         get('downloads/jobs', signal).catch((e) => (isAbort(e) ? Promise.reject(e) : null)),
+        get('scripts/jobs', signal).catch((e) => (isAbort(e) ? Promise.reject(e) : null)),
       ]);
       if (dj) jobs = latestJobs(dj.jobs);
+      if (sj) scJobs = latestScriptJobs(sj.jobs);
       if (fv) marks = marksFrom(fv);
       if (bm) benches = bm.benchmarks;
       if (bl) baselines = bl.baselines;
@@ -181,6 +188,21 @@ export async function instancesView(ctx) {
     if (!signal.aborted) timer = setTimeout(refresh, POLL_MS);
   }
   signal.addEventListener('abort', () => { clearTimeout(timer); clearTimeout(dlTimer); });
+
+  function scBox(id) {
+    if (!scBoxes.has(id)) scBoxes.set(id, h('div', { class: 'inst-dl' }));
+    return scBoxes.get(id);
+  }
+
+  async function cancelScripts(j) {
+    if (!window.confirm(`取消实例 ${j.instance_id} 正在跑的开机脚本？`)) return;
+    try {
+      await post(`scripts/jobs/${j.id}/cancel`, {});
+    } catch (err) {
+      mount(message, errorBox(err));
+    }
+    pollDownloads();
+  }
 
   function dlBox(id) {
     if (!dlBoxes.has(id)) dlBoxes.set(id, h('div', { class: 'inst-dl' }));
@@ -202,15 +224,23 @@ export async function instancesView(ctx) {
       const j = jobs.get(id);
       mount(el, j ? jobPanel(j, { onCancel: cancelDownload, folds: dlFolds }) : null);
     }
+    const now = Math.round(Date.now() / 1000);
+    for (const [id, el] of scBoxes) {
+      const j = scJobs.get(id);
+      mount(el, j ? scriptJobPanel(j, { onCancel: cancelScripts, folds: scFolds, open: scOpen, now }) : null);
+    }
     clearTimeout(dlTimer);
-    if ([...jobs.values()].some(isActive) && !signal.aborted) dlTimer = setTimeout(pollDownloads, DL_POLL_MS);
+    const busy = [...jobs.values()].some(isActive) || [...scJobs.values()].some(scriptActive);
+    if (busy && !signal.aborted) dlTimer = setTimeout(pollDownloads, DL_POLL_MS);
   }
 
   async function pollDownloads() {
     clearTimeout(dlTimer);
     try {
       const was = new Map([...jobs].map(([id, j]) => [id, j.status]));
-      jobs = latestJobs((await get('downloads/jobs', signal)).jobs);
+      const [dj, sj] = await Promise.all([get('downloads/jobs', signal), get('scripts/jobs', signal)]);
+      jobs = latestJobs(dj.jobs);
+      scJobs = latestScriptJobs(sj.jobs);
       // a job that just finished may have changed the disk usage: refresh cards
       if ([...jobs].some(([id, j]) => was.has(id) && was.get(id) !== j.status && !isActive(j))) refreshSoon();
     } catch (err) {
@@ -519,6 +549,8 @@ export async function instancesView(ctx) {
       x.actual_status === 'running' ? h('a', { class: 'button small', href: `#/terminal?instance=${x.id}`, title: '打开网页终端和文件浏览器' }, '终端') : null,
       x.actual_status === 'running' ? btn('启动下载器', () => openDownloadDialog(x, (j) => { jobs.set(x.id, j); dlFolds.delete(j.id); renderDownloads(); }),
         isActive(jobs.get(x.id)) ? null : 'ok', '用 aria2 把“设置 → 启动下载配置”里的文件下到实例上，并同步 ComfyUI 的 input') : null,
+      x.actual_status === 'running' ? btn('运行脚本', () => openScriptsDialog(x, (j) => { scJobs.set(x.id, j); scFolds.delete(j.id); renderDownloads(); }),
+        null, '在实例上按顺序运行“设置 → 开机脚本”里的脚本') : null,
       x.actual_status === 'running' ? btn('备份 ComfyUI input', (e) => backupInput(x, e.currentTarget), null, '把实例上 ComfyUI 的 input 目录（上传的图片 / 视频）拉回面板机，合并进 backups/input.tar.gz') : null,
       btn('算力检测', () => benchDialog(x), null, '跑一分钟左右的算力 / 显存检测，查假卡、坏卡'),
       btn('日志', () => logsDialog(x)),
@@ -601,6 +633,7 @@ export async function instancesView(ctx) {
             [`${disk === null ? 0 : fixed(disk, 1)}/${fixed(x.disk_space, 1)} GB `, meter(disk === null ? 0 : disk / x.disk_space)])),
         actionBar(x),
         dlBox(x.id),
+        scBox(x.id),
         lastBench(x),
         portList(x, copy)) : null,
       h('div', { class: 'inst-status' },

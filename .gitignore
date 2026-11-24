@@ -8,6 +8,7 @@
 *.db-wal
 *.log
 /ssh_key
+/files/
 /backups/
 API.txt
 *.env

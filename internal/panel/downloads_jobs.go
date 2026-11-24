@@ -341,10 +341,16 @@ var errInstanceGone = errors.New("实例已经不在了")
 
 // remote 在实例上执行命令；SSH 断了会重试（最长 10 分钟），命令本身失败不重试。
 func (s *Server) remote(ctx context.Context, j *dlJob, cmd string, stdin []byte, timeout time.Duration) (string, string, error) {
+	return s.remoteRetry(ctx, j.InstanceID, cmd, stdin, timeout, func(msg string) { s.setPhase(j, msg) })
+}
+
+// remoteRetry 是后台任务（启动下载器、开机脚本）用的 runOn：SSH 断了每 10 秒重试，
+// 最长 10 分钟，重试时调 onRetry 报告；命令本身失败（非 0 退出）不重试。
+func (s *Server) remoteRetry(ctx context.Context, id int64, cmd string, stdin []byte, timeout time.Duration, onRetry func(string)) (string, string, error) {
 	start := time.Now()
 	for {
 		rctx, cancel := context.WithTimeout(ctx, timeout)
-		out, errOut, err := s.runOn(rctx, j.InstanceID, cmd, stdin)
+		out, errOut, err := s.runOn(rctx, id, cmd, stdin)
 		cancel()
 		var exit *ssh.ExitError
 		if err == nil || errors.As(err, &exit) {
@@ -359,7 +365,9 @@ func (s *Server) remote(ctx context.Context, j *dlJob, cmd string, stdin []byte,
 		if time.Since(start) > dlSSHGiveUp {
 			return "", "", fmt.Errorf("SSH 一直连不上：%v", err)
 		}
-		s.setPhase(j, "SSH 断了，重连中："+firstLine(err.Error()))
+		if onRetry != nil {
+			onRetry("SSH 断了，重连中：" + firstLine(err.Error()))
+		}
 		select {
 		case <-ctx.Done():
 			return "", "", ctx.Err()
