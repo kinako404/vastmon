@@ -56,7 +56,7 @@ vastmon 每隔两分钟抓一次报价，按你的条件过滤，并把「单价
 需要一台带 systemd 的 Linux 服务器（x86_64 或 arm64），以及一个 vast.ai API key（[cloud.vast.ai](https://cloud.vast.ai/) → Account → API Keys）。
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/FishPort-Dev-Team/vastmon/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/kinako404/vastmon/main/install.sh | sudo bash
 ```
 
 脚本会下载对应架构的程序并校验 SHA-256，创建 `vastmon` 系统用户和 systemd 服务，然后问你三件事：API key、监听地址（默认 `0.0.0.0:8090`）、面板登录密码（直接回车会随机生成一个并打印出来）。装好后打开 `http://服务器IP:8090` 登录即可。
@@ -64,7 +64,7 @@ curl -fsSL https://raw.githubusercontent.com/FishPort-Dev-Team/vastmon/main/inst
 想无人值守安装，就把答案放进环境变量：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/FishPort-Dev-Team/vastmon/main/install.sh \
+curl -fsSL https://raw.githubusercontent.com/kinako404/vastmon/main/install.sh \
   | sudo VAST_API_KEY=你的key VASTMON_PASSWORD='至少8位的密码' VASTMON_ADDR=0.0.0.0:8090 bash
 ```
 
@@ -115,7 +115,7 @@ server {
 | 看状态 | `systemctl status vastmon` |
 | 看日志 | `journalctl -u vastmon -f` |
 | 重启 | `systemctl restart vastmon` |
-| 升级到最新版 | `curl -fsSL https://raw.githubusercontent.com/FishPort-Dev-Team/vastmon/main/install.sh \| sudo bash -s upgrade` |
+| 升级到最新版 | `curl -fsSL https://raw.githubusercontent.com/kinako404/vastmon/main/install.sh \| sudo bash -s upgrade` |
 | 忘了密码 | `curl -fsSL …/install.sh \| sudo bash -s passwd` |
 | 卸载（保留数据） | `curl -fsSL …/install.sh \| sudo bash -s uninstall` |
 | 卸载并删除数据 | `curl -fsSL …/install.sh \| sudo bash -s uninstall --purge` |
@@ -191,7 +191,7 @@ server {
 需要 Go 1.26 或更新版本，不需要 CGO（SQLite 用纯 Go 实现）。
 
 ```bash
-git clone https://github.com/FishPort-Dev-Team/vastmon.git
+git clone https://github.com/kinako404/vastmon.git
 cd vastmon
 go build -trimpath -ldflags "-s -w -X main.version=$(git describe --tags --always)" -o vastmon .
 ./vastmon passwd                         # 先设面板密码

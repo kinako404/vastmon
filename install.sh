@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # vastmon one-click installer / 一键安装脚本
 #
-#   curl -fsSL https://raw.githubusercontent.com/FishPort-Dev-Team/vastmon/main/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/kinako404/vastmon/main/install.sh | sudo bash
 #
 #   sudo bash install.sh [install]          install or upgrade (default) / 安装或升级（默认）
 #   sudo bash install.sh upgrade            upgrade the binary only / 只升级程序
@@ -13,7 +13,7 @@
 
 set -euo pipefail
 
-REPO="${VASTMON_REPO:-FishPort-Dev-Team/vastmon}"
+REPO="${VASTMON_REPO:-kinako404/vastmon}"
 SERVICE="vastmon"
 APP_USER="vastmon"
 BIN_DIR="/opt/vastmon"

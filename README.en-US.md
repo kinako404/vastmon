@@ -56,7 +56,7 @@ vastmon polls the offers every two minutes, applies your filters, and ranks mach
 You need a Linux server with systemd (x86_64 or arm64) and a vast.ai API key ([cloud.vast.ai](https://cloud.vast.ai/) → Account → API Keys).
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/FishPort-Dev-Team/vastmon/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/kinako404/vastmon/main/install.sh | sudo bash
 ```
 
 The script downloads the binary for your architecture, verifies its SHA-256, creates a `vastmon` system user and a systemd service, and asks three questions: your API key, the listen address (default `0.0.0.0:8090`) and a panel password (press Enter to have one generated and printed). Then open `http://<server-ip>:8090` and sign in.
@@ -64,7 +64,7 @@ The script downloads the binary for your architecture, verifies its SHA-256, cre
 For an unattended install, pass the answers as environment variables:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/FishPort-Dev-Team/vastmon/main/install.sh \
+curl -fsSL https://raw.githubusercontent.com/kinako404/vastmon/main/install.sh \
   | sudo VAST_API_KEY=your-key VASTMON_PASSWORD='at-least-8-chars' VASTMON_ADDR=0.0.0.0:8090 bash
 ```
 
@@ -115,7 +115,7 @@ On Cloudflare, make sure Network → WebSockets is on. When the panel sits direc
 | Status | `systemctl status vastmon` |
 | Logs | `journalctl -u vastmon -f` |
 | Restart | `systemctl restart vastmon` |
-| Upgrade to the latest release | `curl -fsSL https://raw.githubusercontent.com/FishPort-Dev-Team/vastmon/main/install.sh \| sudo bash -s upgrade` |
+| Upgrade to the latest release | `curl -fsSL https://raw.githubusercontent.com/kinako404/vastmon/main/install.sh \| sudo bash -s upgrade` |
 | Reset a forgotten password | `curl -fsSL …/install.sh \| sudo bash -s passwd` |
 | Uninstall, keep data | `curl -fsSL …/install.sh \| sudo bash -s uninstall` |
 | Uninstall and delete data | `curl -fsSL …/install.sh \| sudo bash -s uninstall --purge` |
@@ -191,7 +191,7 @@ Open the panel at its HTTPS address, go to Settings → 浏览器通知 and clic
 Go 1.26 or newer; no CGO needed (SQLite is pure Go).
 
 ```bash
-git clone https://github.com/FishPort-Dev-Team/vastmon.git
+git clone https://github.com/kinako404/vastmon.git
 cd vastmon
 go build -trimpath -ldflags "-s -w -X main.version=$(git describe --tags --always)" -o vastmon .
 ./vastmon passwd                        # set the panel password first
