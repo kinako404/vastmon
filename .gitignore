@@ -1,0 +1,13 @@
+# build output
+/vastmon
+/dist/
+
+# runtime data: database (password hash, sessions, SSH key passphrase, tokens), logs, keys
+*.db
+*.db-shm
+*.db-wal
+*.log
+/ssh_key
+/backups/
+API.txt
+*.env
