@@ -1,4 +1,4 @@
-# vastmon
+# <img src="internal/panel/web/favicon.svg" alt="vastmon 图标" width="40" align="top"> vastmon
 
 **简体中文** | [English](README.en-US.md)
 

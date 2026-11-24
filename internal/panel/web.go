@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io/fs"
 	"log"
+	"mime"
 	"net/http"
 	"slices"
 	"sort"
@@ -46,6 +47,11 @@ type Server struct {
 
 func newServer(st *Store, mon *Monitor, cl *Client, auth *Auth, dataDir string) *Server {
 	return &Server{st: st, mon: mon, cl: cl, auth: auth, dataDir: dataDir}
+}
+
+func init() {
+	// Go 自带的类型表里没有 .webmanifest
+	mime.AddExtensionType(".webmanifest", "application/manifest+json")
 }
 
 func (s *Server) routes() http.Handler {

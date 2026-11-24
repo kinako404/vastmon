@@ -15,6 +15,7 @@ self.addEventListener('push', (e) => {
     body: d.body || '',
     tag: d.tag ? `${d.tag}-${d.ts || Date.now()}` : undefined,
     timestamp: d.ts ? d.ts * 1000 : Date.now(),
+    icon: 'icon-192.png',
     data: { url: d.url || '' },
   }));
 });
