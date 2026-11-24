@@ -1,4 +1,4 @@
-module vastmon
+module github.com/kinako404/vastmon
 
 go 1.26.4
 

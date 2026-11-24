@@ -219,12 +219,32 @@ Go 1.26 or newer; no CGO needed (SQLite is pure Go).
 ```bash
 git clone https://github.com/kinako404/vastmon.git
 cd vastmon
-go build -trimpath -ldflags "-s -w -X main.version=$(git describe --tags --always)" -o vastmon .
+go build -trimpath -ldflags "-s -w -X main.version=$(git describe --tags --always)" -o vastmon ./cmd/vastmon
 ./vastmon passwd                        # set the panel password first
 VAST_API_KEY=your-key ./vastmon         # then open http://<server-ip>:8090
 ```
 
 The front end is plain JavaScript modules embedded in the binary; there is no build step.
+
+**Project layout**
+
+```
+cmd/vastmon/          entry point
+internal/panel/       the panel (Go):
+  panel.go              flags and subcommands (passwd / version)
+  vast.go               vast.ai API client
+  monitor.go filter*.go offer polling, filters and presets
+  rent.go instance_*.go renting, instance actions, post-boot setup
+  favorites.go blacklist.go         favorites and blacklist
+  bench.go bench.py baselines*.go   benchmark and baseline database
+  term.go files.go sshpool.go ssh_settings.go   web terminal, file browser, SSH
+  downloads*.go comfy_input.go      startup downloader, ComfyUI input sync
+  notify.go webpush.go billing.go   browser notifications, billing
+  auth.go store.go web.go           sign-in, SQLite, HTTP routes
+  web/                  front end (plain JS, embedded with go:embed)
+docs/images/          README screenshots
+install.sh            one-click installer
+```
 
 ## FAQ
 
@@ -236,4 +256,4 @@ The front end is plain JavaScript modules embedded in the binary; there is no bu
 
 ## License
 
-[MIT](LICENSE). The bundled [xterm.js](https://github.com/xtermjs/xterm.js) used by the web terminal is also MIT-licensed; its license is in `web/vendor/xterm/`.
+[MIT](LICENSE). The bundled [xterm.js](https://github.com/xtermjs/xterm.js) used by the web terminal is also MIT-licensed; its license is in `internal/panel/web/vendor/xterm/`.

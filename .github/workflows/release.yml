@@ -21,7 +21,7 @@ jobs:
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
               -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" \
-              -o dist/vastmon-linux-$arch .
+              -o dist/vastmon-linux-$arch ./cmd/vastmon
           done
           cp install.sh dist/
           cd dist && sha256sum vastmon-linux-* install.sh > SHA256SUMS && cat SHA256SUMS

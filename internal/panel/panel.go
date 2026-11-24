@@ -1,12 +1,13 @@
-// vastmon：vast.ai 机器监控面板。
+// Package panel 是 vastmon 面板本体：vast.ai 机器监控、开机、实例管理、
+// 算力检测、网页终端、启动下载器、浏览器通知。前端在 web/，打包进二进制。
 //
 // 定时抓取指定 GPU 型号的可租机器存进 SQLite，网页上按带宽、流量费、
 // CPU 核数等条件过滤（vast 官网不能按流量费过滤）。
 //
-//	cd vastmon && go run . [-addr 0.0.0.0:8090] [-interval 2m] [-disk 96]
-//	./vastmon passwd    设置面板登录密码（面板所有内容都要登录）
-//	./vastmon version   显示版本
-package main
+//	go run ./cmd/vastmon [-addr 0.0.0.0:8090] [-interval 2m] [-disk 96]
+//	vastmon passwd    设置面板登录密码（面板所有内容都要登录）
+//	vastmon version   显示版本
+package panel
 
 import (
 	"bufio"
@@ -73,10 +74,12 @@ func setPassword(a *Auth) error {
 	return nil
 }
 
-// version 在发布时用 -ldflags "-X main.version=v0.1.0" 写进去。
+// version 由 Main 设置（cmd/vastmon 发布时用 -ldflags "-X main.version=v0.1.0" 写进去）。
 var version = "dev"
 
-func main() {
+// Main 解析命令行并运行面板（或 passwd / version 等子命令）。
+func Main(v string) {
+	version = v
 	showVersion := flag.Bool("version", false, "显示版本后退出")
 	addr := flag.String("addr", "0.0.0.0:8090", "面板监听地址")
 	dbPath := flag.String("db", "vastmon.db", "SQLite 数据库文件")

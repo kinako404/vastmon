@@ -16,7 +16,7 @@ jobs:
       - name: gofmt
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - run: go vet ./...
-      - run: CGO_ENABLED=0 go build -trimpath -o vastmon .
+      - run: CGO_ENABLED=0 go build -trimpath -o vastmon ./cmd/vastmon
       - run: ./vastmon version
       - name: shellcheck install.sh
         run: shellcheck -S warning install.sh

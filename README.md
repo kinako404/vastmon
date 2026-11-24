@@ -219,12 +219,32 @@ server {
 ```bash
 git clone https://github.com/kinako404/vastmon.git
 cd vastmon
-go build -trimpath -ldflags "-s -w -X main.version=$(git describe --tags --always)" -o vastmon .
+go build -trimpath -ldflags "-s -w -X main.version=$(git describe --tags --always)" -o vastmon ./cmd/vastmon
 ./vastmon passwd                         # 先设面板密码
 VAST_API_KEY=你的key ./vastmon            # 打开 http://服务器IP:8090
 ```
 
 前端是原生 JavaScript 模块，直接嵌在程序里，不需要构建步骤。
+
+**项目结构**
+
+```
+cmd/vastmon/          程序入口
+internal/panel/       面板本体（Go）：
+  panel.go              启动参数、子命令（passwd / version）
+  vast.go               vast.ai API 客户端
+  monitor.go filter*.go 抓取报价、过滤与方案
+  rent.go instance_*.go 开机、实例操作、开机后的设置
+  favorites.go blacklist.go         收藏、黑名单
+  bench.go bench.py baselines*.go   算力检测与性能基准库
+  term.go files.go sshpool.go ssh_settings.go   网页终端、文件浏览、SSH
+  downloads*.go comfy_input.go      启动下载器、ComfyUI input 同步
+  notify.go webpush.go billing.go   浏览器通知、账单
+  auth.go store.go web.go           登录、SQLite、HTTP 路由
+  web/                  前端（原生 JS，go:embed 打包）
+docs/images/          README 截图
+install.sh            一键安装脚本
+```
 
 ## 常见问题
 
@@ -236,4 +256,4 @@ VAST_API_KEY=你的key ./vastmon            # 打开 http://服务器IP:8090
 
 ## 许可
 
-[MIT](LICENSE)。网页终端使用的 [xterm.js](https://github.com/xtermjs/xterm.js) 同为 MIT 许可，随程序一起分发，许可证见 `web/vendor/xterm/`。
+[MIT](LICENSE)。网页终端使用的 [xterm.js](https://github.com/xtermjs/xterm.js) 同为 MIT 许可，随程序一起分发，许可证见 `internal/panel/web/vendor/xterm/`。

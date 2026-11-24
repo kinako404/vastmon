@@ -1,4 +1,4 @@
-package main
+package panel
 
 // builtinBaselinesVersion 改了内置数据就加一，启动时会换掉库里的内置行。
 const builtinBaselinesVersion = 3
