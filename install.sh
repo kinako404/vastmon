@@ -169,6 +169,7 @@ RestartSec=5
 TimeoutStopSec=15
 
 # hardening / 加固
+UMask=0077
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
