@@ -203,7 +203,9 @@ set_password() {
       fi
     fi
     if [ -z "$pw" ]; then
-      pw="$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16)"
+      # every stage reads its whole input, so nothing gets SIGPIPE under pipefail
+      # 每一段都读完输入，pipefail 下不会因为 SIGPIPE 退出
+      pw="$(head -c 48 /dev/urandom | base64 | LC_ALL=C tr -dc 'A-Za-z0-9' | cut -c1-16)"
       GENERATED_PW="$pw"
     fi
   fi
