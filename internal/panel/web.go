@@ -33,6 +33,7 @@ type Server struct {
 	bill billingCache
 	pool sshPool
 	sm   monManager
+	ij   inputJobs
 	dl   dlManager
 	sc   scriptManager
 	// inputMu 让 input 备份一次只合并一个。
@@ -136,6 +137,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/downloads/jobs/{jid}/cancel", s.auth.require(s.cancelDownload))
 	mux.HandleFunc("POST /api/instances/{id}/download", s.auth.require(s.startDownload))
 	mux.HandleFunc("POST /api/instances/{id}/backup-input", s.auth.require(s.backupInputNow))
+	mux.HandleFunc("GET /api/input/jobs", s.auth.require(s.inputJobList))
+	mux.HandleFunc("POST /api/input/jobs/{jid}/decide", s.auth.require(s.inputJobDecide))
+	mux.HandleFunc("POST /api/input/clear", s.auth.require(s.clearInputArchive))
 	mux.HandleFunc("POST /api/blacklist", s.auth.require(s.addBlacklist))
 	mux.HandleFunc("PUT /api/blacklist/{mid}/note", s.auth.require(s.blacklistNote))
 	mux.HandleFunc("DELETE /api/blacklist/{mid}", s.auth.require(s.removeBlacklist))

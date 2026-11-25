@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"path"
 	"strconv"
 	"strings"
@@ -151,6 +152,10 @@ func (s *Server) createJob(instanceID int64, profileID int, itemIDs []int, syncI
 		if (len(want) == 0 && it.Enabled) || want[it.ID] {
 			j.Files = append(j.Files, dlFile{ItemID: it.ID, URL: it.URL, Dir: it.Dir, Name: it.Name, Size: it.Size, Status: fQueued})
 		}
+	}
+	// 没有备份（比如刚在设置里清空）就没什么可同步的
+	if _, err := os.Stat(inputArchivePath()); err != nil {
+		syncInput = false
 	}
 	if syncInput {
 		j.Input.Status = "queued"

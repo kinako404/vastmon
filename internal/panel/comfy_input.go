@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path"
@@ -131,10 +130,25 @@ func (b backupResult) String() string {
 	return fmt.Sprintf("新增 %d 个、更新 %d 个，备份里共 %d 个文件（%.1f MB）", b.Added, b.Updated, b.Total, float64(b.Size)/1048576)
 }
 
-// backupInput 把实例的 input 目录打包拉回来，和本地备份合并。
-func (s *Server) backupInput(ctx context.Context, id int64) (backupResult, error) {
-	s.inputMu.Lock()
-	defer s.inputMu.Unlock()
+// countWriter 把写过去的字节数报给 fn。
+type countWriter struct {
+	w  io.Writer
+	fn func(n int64)
+	n  int64
+}
+
+func (c *countWriter) Write(b []byte) (int, error) {
+	n, err := c.w.Write(b)
+	c.n += int64(n)
+	if c.fn != nil {
+		c.fn(c.n)
+	}
+	return n, err
+}
+
+// backupInput 把实例的 input 目录打包拉回来，和本地备份合并。progress(已拉回的字节) 可以为空。
+// 拉的时候不占 inputMu（网络慢时要很久），合并时才占。
+func (s *Server) backupInput(ctx context.Context, id int64, progress func(n int64)) (backupResult, error) {
 	c, err := s.dlConfig()
 	if err != nil {
 		return backupResult{}, err
@@ -158,7 +172,7 @@ func (s *Server) backupInput(ctx context.Context, id int64) (backupResult, error
 	}
 	defer sess.Close()
 	var errb strings.Builder
-	sess.Stdout, sess.Stderr = tmp, &errb
+	sess.Stdout, sess.Stderr = &countWriter{w: tmp, fn: progress}, &errb
 	runErr := make(chan error, 1)
 	q := shellQuote(c.Root)
 	go func() {
@@ -168,7 +182,10 @@ func (s *Server) backupInput(ctx context.Context, id int64) (backupResult, error
 	case err = <-runErr:
 	case <-ctx.Done():
 		sess.Close()
-		return backupResult{}, errors.New("拉取 ComfyUI input 超时")
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return backupResult{}, errors.New("拉取 ComfyUI input 超时")
+		}
+		return backupResult{}, errors.New("拉取 ComfyUI input 被取消")
 	}
 	if err != nil {
 		return backupResult{}, fmt.Errorf("打包实例上 ComfyUI 的 input 失败：%s", firstLine(errb.String()+" "+err.Error()))
@@ -176,7 +193,9 @@ func (s *Server) backupInput(ctx context.Context, id int64) (backupResult, error
 	if _, err := tmp.Seek(0, 0); err != nil {
 		return backupResult{}, err
 	}
+	s.inputMu.Lock()
 	res, err := mergeArchives(dst, tmp)
+	s.inputMu.Unlock()
 	if err != nil {
 		return res, fmt.Errorf("合并 ComfyUI input 备份失败：%v", err)
 	}
@@ -357,26 +376,17 @@ func countFiles(p string) int {
 	}
 }
 
-// backupInputNow 是实例卡片上的“备份 ComfyUI input”。
+// backupInputNow 是实例卡片上的“备份 ComfyUI input”：开一个后台任务就返回，进度在
+// GET /api/input/jobs 里。
 func (s *Server) backupInputNow(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
-	defer cancel()
-	res, err := s.backupInput(ctx, id)
-	detail := ""
-	if err == nil {
-		detail = res.String()
-	}
-	a := InstanceAction{TS: time.Now().Unix(), InstanceID: id, Action: "备份 ComfyUI input", Detail: detail, Err: errString(err)}
-	if e := s.st.AddAction(a); e != nil {
-		log.Printf("记录实例操作失败: %v", e)
-	}
+	j, err := s.startInputJob(id, "", nil)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "BACKUP", err.Error())
+		writeError(w, http.StatusConflict, "BUSY", err.Error())
 		return
 	}
-	writeJSON(w, map[string]any{"ok": true, "result": res, "text": res.String()})
+	writeJSON(w, map[string]any{"ok": true, "job": j})
 }

@@ -206,7 +206,7 @@ Under Settings → 启动下载配置 (download configuration), create one or mo
 - For Civitai you can paste a model page, a version download link or just a model ID; most models need a Civitai token.
 - The panel resolves the real download URL with your token first and hands only that to the instance, so tokens normally never reach the instance.
 
-aria2 is installed with `apt-get` if the instance does not have it. *ComfyUI input sync* only makes sense for ComfyUI: on start it unpacks `backups/input.tar.gz` into `input/` under the working directory, and before stop / recycle / destroy it pulls the instance's `input/` back and merges it in (adding and updating, never deleting).
+aria2 is installed with `apt-get` if the instance does not have it. *ComfyUI input sync* only makes sense for ComfyUI: on start it unpacks `backups/input.tar.gz` into `input/` under the working directory, and before stop / recycle / destroy it pulls the instance's `input/` back and merges it in (adding and updating, never deleting). The pull runs as a background job shown on the instance card, and the action only happens once the backup is in; if the link from the instance is slow and the pull is still going after the configured time (3 minutes by default), the card asks whether to keep waiting, give the backup up and go ahead, or cancel. *清空 input 备份* in the settings empties the panel's backup (the old one is kept once as `input.tar.gz.prev`), so new instances no longer receive the old files.
 
 ### Startup scripts (开机脚本)
 
@@ -269,7 +269,7 @@ internal/panel/       the panel (Go):
   bench.go bench.py baselines*.go   benchmark and baseline database
   term.go files.go sshpool.go ssh_settings.go   web terminal, file browser, SSH
   sysmon.go             system monitor on the terminal page
-  downloads*.go comfy_input.go      startup downloader, ComfyUI input sync
+  downloads*.go comfy_input.go input_jobs.go   startup downloader, ComfyUI input sync and backup jobs
   scripts.go            startup scripts, variables, file library
   notify.go webpush.go billing.go   browser notifications, billing
   auth.go store.go web.go           sign-in, SQLite, HTTP routes

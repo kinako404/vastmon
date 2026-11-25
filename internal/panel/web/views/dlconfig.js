@@ -1,6 +1,6 @@
 import { h, mount, errorBox, loading, empty, field, table } from '../lib/dom.js';
 import { get, put, post } from '../lib/api.js';
-import { openDialog } from '../lib/dialog.js';
+import { openDialog, confirmDialog } from '../lib/dialog.js';
 import { fmtTime } from '../lib/format.js';
 import { COMMON_DIRS, bytes, enabledSummary } from '../lib/downloads.js';
 
@@ -29,6 +29,7 @@ export function downloadsSection() {
   const root = h('input', { class: 'mono', spellcheck: 'false' });
   const conns = h('input', { type: 'number', min: '1', max: '16', step: '1' });
   const syncInput = h('input', { type: 'checkbox' });
+  const askMin = h('input', { type: 'number', min: '1', max: '240', step: '1' });
   const hf = h('input', { type: 'password', autocomplete: 'new-password', class: 'mono' });
   const civ = h('input', { type: 'password', autocomplete: 'new-password', class: 'mono' });
   const clearHF = h('input', { type: 'checkbox' });
@@ -42,6 +43,7 @@ export function downloadsSection() {
     root.value = cfg.root;
     conns.value = String(cfg.connections);
     syncInput.checked = cfg.sync_input;
+    askMin.value = String(cfg.input_ask_min);
     hf.value = '';
     civ.value = '';
     clearHF.checked = false;
@@ -51,9 +53,29 @@ export function downloadsSection() {
     const a = cfg.input_archive || {};
     importBtn.hidden = !cfg.import_available;
     mount(head,
-      h('p', null, a.exists ? `ComfyUI input 备份（上传的图片 / 视频）：${bytes(a.size)}，${fmtTime(a.mtime)} 更新。` : '还没有 ComfyUI input 备份。'),
+      h('p', null, a.exists ? `ComfyUI input 备份（上传的图片 / 视频）：${bytes(a.size)}，${fmtTime(a.mtime)} 更新。 ` : '还没有 ComfyUI input 备份（清空过，或者还没备份过）。',
+        a.exists ? h('button', {
+          type: 'button', class: 'small danger',
+          title: '清空面板机上的 input 备份：之后新开的实例不再同步这些旧文件',
+          onclick: () => clearInput(a),
+        }, '清空 input 备份') : null),
       note ? h('div', { class: 'notice' }, note) : null);
     render();
+  }
+
+  // clearInput empties the panel's copy of the ComfyUI input.
+  function clearInput(a) {
+    confirmDialog({
+      title: '清空 ComfyUI input 备份？',
+      confirmText: '清空',
+      danger: true,
+      message: [
+        h('p', null, `面板机上现在的备份有 ${bytes(a.size)}。清空后，新开的实例不会再同步这些旧的图片 / 视频。`),
+        h('p', { class: 'hint' }, '旧备份改名成 input.tar.gz.prev 留一份，下次备份时会被覆盖。'),
+        h('p', { class: 'hint' }, '运行中的实例不受影响：它上面的 input 目录不会被删，下次备份它时那些文件会重新进备份（不想要就在停止 / 销毁时取消勾选备份）。'),
+      ],
+      run: async () => { show(await post('input/clear', {}), 'ComfyUI input 备份已清空'); },
+    });
   }
 
   async function save(body, btn, note) {
@@ -273,7 +295,7 @@ export function downloadsSection() {
       onsubmit: (e) => {
         e.preventDefault();
         save({
-          root: root.value.trim(), connections: Number(conns.value), sync_input: syncInput.checked,
+          root: root.value.trim(), connections: Number(conns.value), sync_input: syncInput.checked, input_ask_min: Number(askMin.value),
           hf_token: hf.value.trim(), civitai_token: civ.value.trim(), clear_hf_token: clearHF.checked, clear_civitai_token: clearCiv.checked,
         }, saveBtn, '已保存');
       },
@@ -281,6 +303,7 @@ export function downloadsSection() {
     h('div', { class: 'form-grid wide' },
       field('工作目录（实例上）', root, '下载项的相对目录以它为基准，ComfyUI input 同步到它下面的 input/；用 vast 的 ComfyUI 模板时是 /workspace/ComfyUI'),
       field('aria2 线程数', conns, '1–16，每个文件分几段同时下'),
+      field('input 备份多久没拉完就询问（分钟）', askMin, '停止 / 重建 / 销毁前或手动备份 input 时，超过这个时间还没拉完，实例卡片上会问继续等还是放弃；问的时候传输不停'),
       field('Hugging Face token', hf, h('label', { class: 'inline' }, clearHF, ' 清除')),
       field('Civitai token', civ, h('label', { class: 'inline' }, clearCiv, ' 清除'))),
     h('label', { class: 'field inline' }, syncInput, '启动下载器时默认先同步 ComfyUI 的 input（把 backups/input.tar.gz 解到工作目录的 input/，只对 ComfyUI 有用）'),

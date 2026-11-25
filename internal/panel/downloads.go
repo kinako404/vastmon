@@ -45,9 +45,11 @@ type dlProfile struct {
 }
 
 type dlConfig struct {
-	Root         string      `json:"root"`
-	Connections  int         `json:"connections"`
-	SyncInput    bool        `json:"sync_input"`
+	Root        string `json:"root"`
+	Connections int    `json:"connections"`
+	SyncInput   bool   `json:"sync_input"`
+	// InputAskMin：备份 input 超过这么多分钟还没拉完，页面就问继续等还是放弃。
+	InputAskMin  int         `json:"input_ask_min"`
 	HFToken      string      `json:"hf_token"`
 	CivitaiToken string      `json:"civitai_token"`
 	Profiles     []dlProfile `json:"profiles"`
@@ -100,6 +102,9 @@ func (s *Server) dlConfig() (dlConfig, error) {
 	if c.Connections < 1 || c.Connections > 16 {
 		c.Connections = defaultConnections
 	}
+	if c.InputAskMin < 1 || c.InputAskMin > 240 {
+		c.InputAskMin = defaultInputAskMin
+	}
 	return c, nil
 }
 
@@ -116,7 +121,7 @@ func tokenHint(t string) string {
 // publicConfig 是发给浏览器的配置：token 只给是否设置和末 4 位。
 func (c dlConfig) public() map[string]any {
 	return map[string]any{
-		"root": c.Root, "connections": c.Connections, "sync_input": c.SyncInput, "profiles": c.Profiles, "default": c.Default,
+		"root": c.Root, "connections": c.Connections, "sync_input": c.SyncInput, "input_ask_min": c.InputAskMin, "profiles": c.Profiles, "default": c.Default,
 		"hf_token": tokenHint(c.HFToken), "civitai_token": tokenHint(c.CivitaiToken),
 		"input_archive": inputArchiveInfo(),
 		// 有 comfy_kit 的 sources.json 或 d.sh 时才显示“从 comfy_kit 导入”
@@ -206,6 +211,7 @@ func (s *Server) dlConfigPut(w http.ResponseWriter, r *http.Request) {
 		Root         *string     `json:"root"`
 		Connections  *int        `json:"connections"`
 		SyncInput    *bool       `json:"sync_input"`
+		InputAskMin  *int        `json:"input_ask_min"`
 		HFToken      string      `json:"hf_token"`
 		CivitaiToken string      `json:"civitai_token"`
 		ClearHF      bool        `json:"clear_hf_token"`
@@ -239,6 +245,13 @@ func (s *Server) dlConfigPut(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.SyncInput != nil {
 		c.SyncInput = *body.SyncInput
+	}
+	if body.InputAskMin != nil {
+		if *body.InputAskMin < 1 || *body.InputAskMin > 240 {
+			writeError(w, http.StatusBadRequest, "BAD_REQUEST", "input 备份多久没拉完就询问：要在 1–240 分钟之间")
+			return
+		}
+		c.InputAskMin = *body.InputAskMin
 	}
 	if t := strings.TrimSpace(body.HFToken); t != "" {
 		c.HFToken = t

@@ -500,6 +500,13 @@ details.gpu-pick:not([open]) .gpu-search-wrap { display: none; }
 .dl-pick > .hint:nth-child(3) { overflow-wrap: anywhere; }
 .dl-pick > .hint:nth-child(5) { grid-column: 2 / -1; }
 .backup-opt { margin-top: 10px; }
+.in-job.ask { border-color: var(--warn); }
+.in-line { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.in-line .spacer { flex: 1; }
+.in-line .dl-bar { width: 120px; }
+.in-ask { margin-top: 6px; color: var(--warn); font-weight: 600; }
+.in-tools { margin: 8px 0 2px; }
+.in-job > .error { margin: 6px 0 2px; }
 tr.muted td { color: var(--muted); }
 .toolbar.tight { margin-bottom: 4px; }
 .preset-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: -4px 0 10px; }

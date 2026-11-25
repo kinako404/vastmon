@@ -1,7 +1,6 @@
 package panel
 
 import (
-	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -82,34 +81,27 @@ func (s *Server) instanceAction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "CONFIRM", "销毁前要输入实例 ID 确认")
 		return
 	}
-	if !s.actionMu.TryLock() {
-		writeError(w, http.StatusConflict, "BUSY", "上一个操作还没结束")
-		return
-	}
-	defer s.actionMu.Unlock()
 	detail := ""
 	if body.Backup && (body.Action == "stop" || body.Action == "recycle" || body.Action == "destroy") {
 		x, err := s.findInstance(id)
 		if err == nil && str(x["actual_status"]) != "running" {
 			detail = "没在运行，跳过备份 ComfyUI input"
 		} else {
-			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
-			res, err := s.backupInput(ctx, id)
-			cancel()
-			a := InstanceAction{TS: time.Now().Unix(), InstanceID: id, Action: "备份 ComfyUI input", Detail: "在" + act.name + "前", Err: errString(err)}
-			if err == nil {
-				a.Detail += "：" + res.String()
-				detail = "已先备份 ComfyUI input"
-			}
-			if e := s.st.AddAction(a); e != nil {
-				log.Printf("记录实例操作失败: %v", e)
-			}
+			// 备份可能要很久：交给后台任务，备份成功后由它执行这个操作，这里马上返回。
+			j, err := s.startInputJob(id, body.Action, &act)
 			if err != nil {
-				writeError(w, http.StatusConflict, "BACKUP_FAILED", "备份 ComfyUI input 失败，没有"+act.name+"："+err.Error()+"。不需要备份就取消勾选“先备份 ComfyUI 的 input 目录”再试。")
+				writeError(w, http.StatusConflict, "BUSY", err.Error())
 				return
 			}
+			writeJSON(w, map[string]any{"ok": true, "job": j})
+			return
 		}
 	}
+	if !s.actionMu.TryLock() {
+		writeError(w, http.StatusConflict, "BUSY", "上一个操作还没结束")
+		return
+	}
+	defer s.actionMu.Unlock()
 	s.record(w, id, act.name, detail, act.run(s.cl, id))
 }
 

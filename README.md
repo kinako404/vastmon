@@ -206,7 +206,7 @@ server {
 - Civitai 可以填模型页、版本下载链接或只填模型号；大多数模型要 Civitai token；
 - 面板会先用 token 解析出真正的下载地址再交给实例，所以 token 一般不会出现在实例上。
 
-实例上没有 aria2 时会自动 `apt-get install`。「ComfyUI input 同步」只对 ComfyUI 有用：开机时把 `backups/input.tar.gz` 解到工作目录的 `input/`，停止 / 重建 / 销毁前把实例上的 `input/` 拉回来合并（只增加和更新，不删除）。
+实例上没有 aria2 时会自动 `apt-get install`。「ComfyUI input 同步」只对 ComfyUI 有用：开机时把 `backups/input.tar.gz` 解到工作目录的 `input/`，停止 / 重建 / 销毁前把实例上的 `input/` 拉回来合并（只增加和更新，不删除）。拉回是后台任务，进度显示在实例卡片上，备份成功后才执行操作；实例到面板的网络太慢、超过设定的时间（默认 3 分钟）还没拉完时，卡片上会问继续等、放弃备份直接执行，还是取消。设置里的「清空 input 备份」把面板上的备份清掉（旧的留一份 `input.tar.gz.prev`），之后新开的实例不再同步旧文件。
 
 ### 开机脚本
 
@@ -269,7 +269,7 @@ internal/panel/       面板本体（Go）：
   bench.go bench.py baselines*.go   算力检测与性能基准库
   term.go files.go sshpool.go ssh_settings.go   网页终端、文件浏览、SSH
   sysmon.go             终端页的系统监控
-  downloads*.go comfy_input.go      启动下载器、ComfyUI input 同步
+  downloads*.go comfy_input.go input_jobs.go   启动下载器、ComfyUI input 同步与备份任务
   scripts.go            开机脚本、变量、文件库
   notify.go webpush.go billing.go   浏览器通知、账单
   auth.go store.go web.go           登录、SQLite、HTTP 路由

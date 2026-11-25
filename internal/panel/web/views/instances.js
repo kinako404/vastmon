@@ -6,6 +6,7 @@ import { openDialog, confirmDialog, copyText } from '../lib/dialog.js';
 import { marksFrom, emptyMarks, markButtons, openMarkDialog } from '../lib/marks.js';
 import { summaryLine, report, powerBadge, asBaseline } from '../lib/bench.js';
 import { jobPanel, latestJobs, isActive, openDownloadDialog } from '../lib/downloads.js';
+import { inputJobPanel, inputJobTitle, latestInputJobs, inputActive, createRateMeter } from '../lib/inputjob.js';
 import { scriptJobPanel, latestScriptJobs, isActive as scriptActive, openScriptsDialog } from '../lib/scripts.js';
 
 const POLL_MS = 20000;
@@ -147,6 +148,12 @@ export async function instancesView(ctx) {
   const scBoxes = new Map();
   const scFolds = new Set();
   const scOpen = new Set();
+  // input backup jobs (maybe followed by stop / recycle / destroy)
+  let inJobs = new Map();
+  let inClock = { now: 0, askMin: 3 };
+  const inBoxes = new Map();
+  const inRate = createRateMeter();
+  const inputNote = h('div');
   const onMarks = (res) => { marks = marksFrom(res); render(); };
   let billErr = null;
   let tab = '';
@@ -162,7 +169,7 @@ export async function instancesView(ctx) {
   async function refresh() {
     clearTimeout(timer);
     try {
-      const [d, b, fv, bm, bl, dj, sj] = await Promise.all([
+      const [d, b, fv, bm, bl, dj, sj, ij] = await Promise.all([
         get('instances', signal),
         get('billing', signal).then((v) => [v, null], (e) => (isAbort(e) ? Promise.reject(e) : [null, e])),
         get('blacklist', signal).catch((e) => (isAbort(e) ? Promise.reject(e) : null)),
@@ -170,9 +177,11 @@ export async function instancesView(ctx) {
         get('baselines', signal).catch((e) => (isAbort(e) ? Promise.reject(e) : null)),
         get('downloads/jobs', signal).catch((e) => (isAbort(e) ? Promise.reject(e) : null)),
         get('scripts/jobs', signal).catch((e) => (isAbort(e) ? Promise.reject(e) : null)),
+        get('input/jobs', signal).catch((e) => (isAbort(e) ? Promise.reject(e) : null)),
       ]);
       if (dj) jobs = latestJobs(dj.jobs);
       if (sj) scJobs = latestScriptJobs(sj.jobs);
+      if (ij) setInputJobs(ij);
       if (fv) marks = marksFrom(fv);
       if (bm) benches = bm.benchmarks;
       if (bl) baselines = bl.baselines;
@@ -209,6 +218,40 @@ export async function instancesView(ctx) {
     return dlBoxes.get(id);
   }
 
+  function inBox(id) {
+    if (!inBoxes.has(id)) inBoxes.set(id, h('div', { class: 'inst-dl' }));
+    return inBoxes.get(id);
+  }
+
+  // setInputJobs takes a fresh job list. A job that has just finished is
+  // announced above the cards, where it stays until dismissed: after a
+  // destroy the instance's own card is gone.
+  function setInputJobs(res) {
+    const was = inJobs;
+    inJobs = latestInputJobs(res.jobs);
+    inClock = { now: res.now, askMin: res.ask_min };
+    for (const j of inJobs.values()) {
+      const old = was.get(j.instance_id);
+      if (!old || old.id !== j.id || !inputActive(old) || inputActive(j)) continue;
+      const close = h('button', { type: 'button', class: 'link small', onclick: () => mount(inputNote) }, '知道了');
+      const text = `实例 ${j.instance_id} · ${inputJobTitle(j)}：${[j.err, j.text].filter(Boolean).join('，')}`;
+      mount(inputNote, h('div', { class: j.status === 'failed' ? 'error' : 'notice' }, text, ' ', close));
+      refreshSoon();
+    }
+  }
+
+  async function decideInput(j, decision) {
+    const name = j.action_name;
+    if (decision === 'skip' && !window.confirm(`不备份 ComfyUI input，直接${name}实例 ${j.instance_id}？\n实例上新增的图片 / 视频不会进备份${j.action === 'stop' ? '' : '，之后就拿不回来了'}。`)) return;
+    if (decision === 'cancel' && !window.confirm(j.action ? `取消${name}实例 ${j.instance_id}？备份也会停下，实例保持原样。` : `放弃备份实例 ${j.instance_id} 的 ComfyUI input？`)) return;
+    try {
+      await post(`input/jobs/${j.id}/decide`, { decision });
+    } catch (err) {
+      mount(message, errorBox(err));
+    }
+    pollDownloads();
+  }
+
   async function cancelDownload(j) {
     if (!window.confirm(`取消实例 ${j.instance_id} 的下载？下了一半的文件留在实例上，下次启动下载器会续传。`)) return;
     try {
@@ -229,8 +272,12 @@ export async function instancesView(ctx) {
       const j = scJobs.get(id);
       mount(el, j ? scriptJobPanel(j, { onCancel: cancelScripts, folds: scFolds, open: scOpen, now }) : null);
     }
+    for (const [id, el] of inBoxes) {
+      const j = inJobs.get(id);
+      mount(el, j ? inputJobPanel(j, { now: inClock.now, rate: inRate(j), askMin: inClock.askMin, onDecide: decideInput }) : null);
+    }
     clearTimeout(dlTimer);
-    const busy = [...jobs.values()].some(isActive) || [...scJobs.values()].some(scriptActive);
+    const busy = [...jobs.values()].some(isActive) || [...scJobs.values()].some(scriptActive) || [...inJobs.values()].some(inputActive);
     if (busy && !signal.aborted) dlTimer = setTimeout(pollDownloads, DL_POLL_MS);
   }
 
@@ -238,9 +285,10 @@ export async function instancesView(ctx) {
     clearTimeout(dlTimer);
     try {
       const was = new Map([...jobs].map(([id, j]) => [id, j.status]));
-      const [dj, sj] = await Promise.all([get('downloads/jobs', signal), get('scripts/jobs', signal)]);
+      const [dj, sj, ij] = await Promise.all([get('downloads/jobs', signal), get('scripts/jobs', signal), get('input/jobs', signal)]);
       jobs = latestJobs(dj.jobs);
       scJobs = latestScriptJobs(sj.jobs);
+      setInputJobs(ij);
       // a job that just finished may have changed the disk usage: refresh cards
       if ([...jobs].some(([id, j]) => was.has(id) && was.get(id) !== j.status && !isActive(j))) refreshSoon();
     } catch (err) {
@@ -249,17 +297,14 @@ export async function instancesView(ctx) {
     renderDownloads();
   }
 
+  // backupInput starts the backup job; its progress shows on the card.
   async function backupInput(x, btn) {
     btn.disabled = true;
-    const old = btn.textContent;
-    btn.textContent = '备份中…';
     try {
-      const r = await post(`instances/${x.id}/backup-input`, {});
-      btn.textContent = '已备份';
-      mount(message, h('div', { class: 'notice' }, `实例 ${x.id} 的 ComfyUI input 已备份：${r.text}`));
-      refreshSoon();
+      await post(`instances/${x.id}/backup-input`, {});
+      mount(inputNote);
+      pollDownloads();
     } catch (err) {
-      btn.textContent = old;
       mount(message, errorBox(err));
     } finally {
       btn.disabled = false;
@@ -271,9 +316,16 @@ export async function instancesView(ctx) {
     setTimeout(() => { if (!signal.aborted) refresh(); }, 4000);
   };
 
+  // act runs an action. With backup_input the server only starts a job
+  // (backup first, then the action) and the card shows how it is going.
   async function act(x, action, extra) {
-    await post(`instances/${x.id}/action`, { action, ...extra });
-    refreshSoon();
+    const res = await post(`instances/${x.id}/action`, { action, ...extra });
+    if (res.job) {
+      mount(inputNote);
+      pollDownloads();
+    } else {
+      refreshSoon();
+    }
   }
 
   function confirmAction(x, action) {
@@ -311,7 +363,7 @@ export async function instancesView(ctx) {
     if (canBackup) {
       spec.message = [spec.message, h('label', { class: 'field inline backup-opt' }, backup,
         '先备份 ComfyUI 的 input 目录（在 ComfyUI 里上传的图片 / 视频）（推荐）'),
-      h('p', { class: 'hint tight' }, '拉回面板机合并进 backups/input.tar.gz：只增加 / 更新文件，不会删本地已有的。备份失败就不执行；实例上没有 ComfyUI（没有 input 目录）时取消勾选。')];
+      h('p', { class: 'hint tight' }, '拉回面板机合并进 backups/input.tar.gz：只增加 / 更新文件，不会删本地已有的。备份在后台进行，进度显示在实例卡片上，备份成功后才执行；拉得太慢时可以在卡片上选继续等、放弃备份直接执行，或者取消。实例上没有 ComfyUI（没有 input 目录）或者不想备份时取消勾选。')];
     }
     confirmDialog({
       ...spec,
@@ -632,6 +684,7 @@ export async function instancesView(ctx) {
             `${fixed(x.disk_bw, 1)} MB/s`,
             [`${disk === null ? 0 : fixed(disk, 1)}/${fixed(x.disk_space, 1)} GB `, meter(disk === null ? 0 : disk / x.disk_space)])),
         actionBar(x),
+        inBox(x.id),
         dlBox(x.id),
         scBox(x.id),
         lastBench(x),
@@ -706,7 +759,7 @@ export async function instancesView(ctx) {
   ctx.show(
     h('div', { class: 'title-row' }, h('h1', null, '实例'), h('span', { class: 'spacer' }),
       h('button', { type: 'button', onclick: refresh }, '刷新')),
-    message, spendBox, tabsBox, cardsBox, historyBox, note);
+    message, inputNote, spendBox, tabsBox, cardsBox, historyBox, note);
   await refresh();
 }
 
