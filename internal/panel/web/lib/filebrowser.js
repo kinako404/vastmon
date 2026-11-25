@@ -3,15 +3,30 @@ import { get, del } from './api.js';
 import { fmtClock } from './format.js';
 import { confirmDialog, copyText } from './dialog.js';
 import { openViewer, mediaKind } from './viewer.js';
+import { createDirTree, join, parent } from './dirtree.js';
 
 // createFileBrowser lists files on an instance over SFTP: click a folder to
 // open it, double-click a picture or video to view it, right-click for the
 // rest (download, open in the text editor, delete, copy the path, cd the
 // terminal there). Files dropped on it or picked with 上传 go to the current folder.
+// Below the list is a folder tree for jumping around; it follows the list,
+// can be resized by dragging its title bar, and hidden.
 // opts.onCd(dir), when given, adds “在终端 cd 到这里”.
 
-const join = (dir, name) => (dir === '/' ? '' : dir) + '/' + name;
-const parent = (dir) => (dir === '/' ? '/' : dir.replace(/\/[^/]*$/, '') || '/');
+// TREE_KEY is the localStorage key for the tree's share of the height and
+// whether it is hidden, shared by every file browser.
+const TREE_KEY = 'vastmon.fileTree';
+
+function treePrefs() {
+  let p = null;
+  try {
+    p = JSON.parse(localStorage.getItem(TREE_KEY));
+  } catch {
+    p = null;
+  }
+  const size = Number(p && p.size);
+  return { size: size >= 0.1 && size <= 0.8 ? size : 0.4, hidden: Boolean(p && p.hidden) };
+}
 
 export function fmtBytes(n) {
   if (!Number.isFinite(n)) return '—';
@@ -69,15 +84,73 @@ export function createFileBrowser(instanceId, opts = {}) {
   const tbody = h('tbody');
   const listWrap = h('div', { class: 'fb-list' },
     h('table', null, h('thead', null, h('tr', null, h('th', null, '名称'), h('th', { class: 'num' }, '大小'), h('th', { class: 'num' }, '修改时间'))), tbody));
+  const setStatus = (...nodes) => mount(status, ...nodes);
+
+  async function copyPath(p) {
+    try {
+      await copyText(p);
+      setStatus(`已复制 ${p}`);
+    } catch (err) {
+      setStatus(errorBox(err));
+    }
+  }
+
+  const tree = createDirTree({
+    list: (p) => get(`files/${instanceId}/list?dirs=1&path=${encodeURIComponent(p)}`).then((res) => res.entries),
+    onOpen: (p) => load(p),
+    onMenu: (ev, p) => showMenu(ev, [
+      ['打开', () => load(p)],
+      opts.onCd ? ['在终端 cd 到这里', () => opts.onCd(p)] : null,
+      ['复制路径', () => copyPath(p)],
+      ['-'],
+      ['刷新这一层', () => tree.refresh(p)],
+    ]),
+  });
+  const prefs = treePrefs();
+  const treeToggle = h('button', { type: 'button', class: 'link small', onclick: () => { prefs.hidden = !prefs.hidden; applyTree(true); } });
+  const treeBar = h('div', { class: 'fb-tree-bar' }, h('span', null, '目录树'), treeToggle);
+
+  // applyTree shows the tree at its saved height, or just its title bar.
+  function applyTree(save) {
+    tree.el.hidden = prefs.hidden;
+    tree.el.style.flexBasis = `${prefs.size * 100}%`;
+    treeBar.classList.toggle('closed', prefs.hidden);
+    treeBar.title = prefs.hidden ? '' : '上下拖动调整高度';
+    treeToggle.textContent = prefs.hidden ? '展开 ▴' : '收起 ▾';
+    if (!prefs.hidden) tree.showCurrent();
+    if (save) localStorage.setItem(TREE_KEY, JSON.stringify(prefs));
+  }
+  applyTree(false);
+
   const el = h('div', { class: 'fb' },
     h('div', { class: 'fb-toolbar' },
       h('button', { type: 'button', class: 'small', title: '上一级', onclick: () => load(parent(cwd)) }, '↑'),
       pathInput,
       h('button', { type: 'button', class: 'small', title: '刷新', onclick: () => load(cwd) }, '刷新'),
       h('button', { type: 'button', class: 'small primary', onclick: () => fileInput.click() }, '上传')),
-    listWrap, status, fileInput);
+    listWrap, treeBar, tree.el, status, fileInput);
 
-  const setStatus = (...nodes) => mount(status, ...nodes);
+  treeBar.addEventListener('pointerdown', (e) => {
+    if (prefs.hidden || e.button !== 0 || e.target.closest('button')) return;
+    e.preventDefault();
+    treeBar.setPointerCapture(e.pointerId);
+    const grab = treeBar.getBoundingClientRect().bottom - e.clientY;
+    const move = (ev) => {
+      const frac = (tree.el.getBoundingClientRect().bottom - ev.clientY - grab) / el.getBoundingClientRect().height;
+      prefs.size = Math.min(0.8, Math.max(0.1, frac));
+      tree.el.style.flexBasis = `${prefs.size * 100}%`;
+    };
+    const up = () => {
+      treeBar.removeEventListener('pointermove', move);
+      treeBar.removeEventListener('pointerup', up);
+      treeBar.removeEventListener('pointercancel', up);
+      applyTree(true);
+    };
+    treeBar.addEventListener('pointermove', move);
+    treeBar.addEventListener('pointerup', up);
+    treeBar.addEventListener('pointercancel', up);
+  });
+
   const rawURL = (p, dl) => `${base}/raw?path=${encodeURIComponent(p)}${dl ? '&dl=1' : ''}`;
 
   function download(e) {
@@ -94,15 +167,6 @@ export function createFileBrowser(instanceId, opts = {}) {
   function view(e) {
     const media = entries.filter((x) => !x.dir && mediaKind(x.name));
     openViewer(instanceId, cwd, media, Math.max(0, media.indexOf(e)), rawURL);
-  }
-
-  async function copyPath(p) {
-    try {
-      await copyText(p);
-      setStatus(`已复制 ${p}`);
-    } catch (err) {
-      setStatus(errorBox(err));
-    }
   }
 
   // remove deletes one file after a confirmation; the list is updated in
@@ -187,6 +251,7 @@ export function createFileBrowser(instanceId, opts = {}) {
       entries = res.entries;
       render();
       listWrap.scrollTop = 0;
+      tree.reveal(cwd, entries.filter((e) => e.dir));
     } catch (err) {
       pathInput.value = cwd || p || '';
       setStatus(errorBox(err));

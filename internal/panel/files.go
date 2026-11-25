@@ -55,6 +55,7 @@ func (s *Server) fileErr(w http.ResponseWriter, err error) {
 	writeError(w, status, "FILE", msg)
 }
 
+// listFiles 列一个目录。dirs=1 时只回目录（目录树用，文件多的目录不用整份传回去）。
 func (s *Server) listFiles(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {
@@ -82,6 +83,7 @@ func (s *Server) listFiles(w http.ResponseWriter, r *http.Request) {
 		s.fileErr(w, err)
 		return
 	}
+	onlyDirs := r.URL.Query().Get("dirs") == "1"
 	out := make([]fileEntry, 0, len(infos))
 	for _, fi := range infos {
 		e := fileEntry{Name: fi.Name(), Dir: fi.IsDir(), Size: fi.Size(), Mtime: fi.ModTime().Unix(), Mode: fi.Mode().String()}
@@ -92,6 +94,9 @@ func (s *Server) listFiles(w http.ResponseWriter, r *http.Request) {
 			} else {
 				e.Broken = true
 			}
+		}
+		if onlyDirs && !e.Dir {
+			continue
 		}
 		out = append(out, e)
 	}
