@@ -48,6 +48,8 @@ type Offer struct {
 	Duration     float64 `json:"duration"`
 	Geo          string  `json:"geolocation"`
 	Verification string  `json:"verification"`
+	DLPerf       float64 `json:"dlperf"`      // vast 的通用深度学习基准分（估算的参考值，不是实测）
+	TFLOPS       float64 `json:"total_flops"` // vast 标的整机 TFLOPS
 	Raw          string  `json:"-"`
 }
 

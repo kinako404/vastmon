@@ -184,6 +184,7 @@ Each row is *one machine at one GPU count*: an 8-GPU host lists 1-, 2- and 4-GPU
 
 - **$/h** already includes disk charges for `-disk` GB.
 - **Est. $/day** = hourly price × 24 + daily download GB × download price + daily upload GB × upload price. Your expected daily traffic is set at the bottom of the filters.
+- **DLPerf** is vast's generic deep-learning benchmark score for the whole machine (next to it, vast's TFLOPS figure). Both are vast's reference values, not measurements; **DLP/$/h** = DLPerf ÷ $/h, higher is better value. The machine page shows them too.
 - Bandwidth price colors: green < 8, orange 8–20, red ≥ 20 ($ per TB).
 - A machine counts as online if it appeared in any of the last three polls. Tick 显示已下架 (show gone) to see vanished machines and their last price.
 

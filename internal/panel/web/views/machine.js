@@ -65,6 +65,9 @@ export async function machineView(ctx) {
           ['CPU', `${m.cpu_name || '未知型号'}，分到 ${cores(m.cpu_cores_effective)} 核 / 整机 ${cores(m.cpu_cores)}（vast 按 vCPU 线程计数）`],
           ['内存', `${gb(m.cpu_ram)} GB`],
           ['显存', `${gb(m.gpu_ram)} GB`],
+          ['算力（vast 参考值）', m.dlperf
+            ? `DLPerf ${fixed(m.dlperf, 1)}（${fixed(m.dph_total ? m.dlperf / m.dph_total : 0, 1)} DLP/$/h）· ${fixed(m.total_flops, 1)} TFLOPS`
+            : '—'],
           ['磁盘', `${fixed(m.disk_space, 0)} GB，${fixed(m.disk_bw, 0)} MB/s`],
           ['可靠性 / CUDA / 端口', `${fixed(m.reliability, 3)} / ${fixed(m.cuda_max_good, 1)} / ${m.direct_port_count}`],
           ['可租天数', days(m.duration)],

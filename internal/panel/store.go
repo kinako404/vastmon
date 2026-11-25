@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS machines (
 	id INTEGER, host_id INTEGER, gpu_name TEXT, gpu_ram REAL,
 	dph REAL, min_bid REAL, inet_down REAL, inet_up REAL, down_tb REAL, up_tb REAL,
 	cpu_name TEXT, cpu_total REAL, cpu_cores REAL, storage_cost REAL, storage_hour REAL, cpu_ram REAL, disk REAL, disk_bw REAL, reliability REAL, cuda REAL,
-	ports INTEGER, duration REAL, geo TEXT, verification TEXT,
+	ports INTEGER, duration REAL, geo TEXT, verification TEXT, dlperf REAL, flops REAL,
 	first_seen INTEGER, last_seen INTEGER, raw TEXT,
 	PRIMARY KEY (machine_id, num_gpus)
 );
@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS rentals (
 `
 
 const offerCols = `id, machine_id, host_id, gpu_name, num_gpus, gpu_ram, dph, min_bid, inet_down, inet_up,
-	down_tb, up_tb, cpu_name, cpu_total, cpu_cores, storage_cost, storage_hour, cpu_ram, disk, disk_bw, reliability, cuda, ports, duration, geo, verification`
+	down_tb, up_tb, cpu_name, cpu_total, cpu_cores, storage_cost, storage_hour, cpu_ram, disk, disk_bw, reliability, cuda, ports, duration, geo, verification, dlperf, flops`
 
 // Store 里 grace 是"在线"判定的宽限期（秒）：vast 单次搜索偶尔漏掉个别机器，
 // 最近 grace 秒内出现过就算在线。
@@ -126,6 +126,8 @@ var addedCols = []struct{ name, def, backfill string }{
 	{"cpu_total", "REAL NOT NULL DEFAULT 0", "COALESCE(json_extract(raw, '$.cpu_cores'), 0)"},
 	{"storage_cost", "REAL NOT NULL DEFAULT 0", "COALESCE(json_extract(raw, '$.storage_cost'), 0)"},
 	{"storage_hour", "REAL NOT NULL DEFAULT 0", "COALESCE(json_extract(raw, '$.storage_total_cost'), 0)"},
+	{"dlperf", "REAL NOT NULL DEFAULT 0", "COALESCE(json_extract(raw, '$.dlperf'), 0)"},
+	{"flops", "REAL NOT NULL DEFAULT 0", "COALESCE(json_extract(raw, '$.total_flops'), 0)"},
 }
 
 func changed(a, b float64) bool { return math.Abs(a-b) > 1e-6 }
@@ -150,7 +152,7 @@ func (s *Store) SaveOffers(ts int64, offers []Offer) error {
 			}
 		}
 		_, err = tx.Exec(`INSERT INTO machines (`+offerCols+`, first_seen, last_seen, raw)
-			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 			ON CONFLICT(machine_id, num_gpus) DO UPDATE SET
 				id=excluded.id, host_id=excluded.host_id, gpu_name=excluded.gpu_name,
 				gpu_ram=excluded.gpu_ram, dph=excluded.dph, min_bid=excluded.min_bid,
@@ -158,10 +160,10 @@ func (s *Store) SaveOffers(ts int64, offers []Offer) error {
 				cpu_name=excluded.cpu_name, cpu_total=excluded.cpu_total, cpu_cores=excluded.cpu_cores,
 				storage_cost=excluded.storage_cost, storage_hour=excluded.storage_hour, cpu_ram=excluded.cpu_ram, disk=excluded.disk, disk_bw=excluded.disk_bw,
 				reliability=excluded.reliability, cuda=excluded.cuda, ports=excluded.ports, duration=excluded.duration,
-				geo=excluded.geo, verification=excluded.verification, last_seen=excluded.last_seen, raw=excluded.raw`,
+				geo=excluded.geo, verification=excluded.verification, dlperf=excluded.dlperf, flops=excluded.flops, last_seen=excluded.last_seen, raw=excluded.raw`,
 			o.ID, o.MachineID, o.HostID, o.GPUName, o.NumGPUs, o.GPURam, o.Dph, o.MinBid, o.InetDown, o.InetUp,
 			o.DownTB, o.UpTB, o.CPUName, o.CPUTotal, o.CPUCores, o.StorageCost, o.StorageHour, o.CPURam, o.Disk, o.DiskBW, o.Reliability, o.CUDA, o.Ports, o.Duration,
-			o.Geo, o.Verification, ts, ts, o.Raw)
+			o.Geo, o.Verification, o.DLPerf, o.TFLOPS, ts, ts, o.Raw)
 		if err != nil {
 			return err
 		}
@@ -212,7 +214,7 @@ func (s *Store) onlineSince() (int64, error) {
 func scanOffer(sc interface{ Scan(...any) error }, o *Offer, extra ...any) error {
 	return sc.Scan(append([]any{&o.ID, &o.MachineID, &o.HostID, &o.GPUName, &o.NumGPUs, &o.GPURam, &o.Dph,
 		&o.MinBid, &o.InetDown, &o.InetUp, &o.DownTB, &o.UpTB, &o.CPUName, &o.CPUTotal, &o.CPUCores, &o.StorageCost, &o.StorageHour, &o.CPURam, &o.Disk, &o.DiskBW,
-		&o.Reliability, &o.CUDA, &o.Ports, &o.Duration, &o.Geo, &o.Verification}, extra...)...)
+		&o.Reliability, &o.CUDA, &o.Ports, &o.Duration, &o.Geo, &o.Verification, &o.DLPerf, &o.TFLOPS}, extra...)...)
 }
 
 func (s *Store) Rows() ([]Row, error) {
