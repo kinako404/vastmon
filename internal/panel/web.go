@@ -33,6 +33,7 @@ type Server struct {
 	bill billingCache
 	pool sshPool
 	sm   monManager
+	tm   termManager
 	ij   inputJobs
 	dl   dlManager
 	sc   scriptManager
@@ -103,6 +104,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/baselines/reset", s.auth.require(s.resetBaselines))
 	mux.HandleFunc("GET /api/instances/{id}/monitor", s.auth.require(s.sysMonitor))
 	mux.HandleFunc("GET /api/term/{id}/ws", s.auth.require(s.terminal))
+	mux.HandleFunc("GET /api/term/sessions", s.auth.require(s.termSessions))
+	mux.HandleFunc("DELETE /api/term/sessions/{sid}", s.auth.require(s.termClose))
 	mux.HandleFunc("GET /api/term/{id}/check", s.auth.require(s.termCheck))
 	mux.HandleFunc("GET /api/files/{id}/list", s.auth.require(s.listFiles))
 	mux.HandleFunc("GET /api/files/{id}/raw", s.auth.require(s.rawFile))

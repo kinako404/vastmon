@@ -1,10 +1,16 @@
 import { h, mount, errorBox, loading, empty } from '../lib/dom.js';
-import { get, currentSession, loginHash } from '../lib/api.js';
+import { get, del, currentSession, loginHash } from '../lib/api.js';
 import { openDialog } from '../lib/dialog.js';
 import { fmtGeo } from '../lib/geo.js';
 import { createFileBrowser } from '../lib/filebrowser.js';
 import { createSysMonitor } from '../lib/sysmon.js';
 
+// The shells belong to the panel server, not to this page: reloading the
+// page, losing the network or closing the browser leaves them (and whatever
+// runs in them) alive. When the page opens it asks the server which sessions
+// exist and puts a tab on each, replaying the recent output; only closing a
+// tab ends its shell.
+//
 // The terminal page keeps its tabs alive across page changes: the module
 // holds them, and the view only re-attaches the root element. Each tab is
 // one instance: a system monitor column on the left (监控 in the status bar
@@ -53,10 +59,12 @@ let root = null;
 let tabBar = null;
 let body = null;
 
-function wsURL(instanceId, cols, rows) {
+// wsURL: with a session id the server attaches to that shell if it is still
+// alive, and starts a new one otherwise.
+function wsURL(instanceId, cols, rows, session) {
   const u = new URL(`api/term/${instanceId}/ws`, location.href);
   u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:';
-  u.search = `?cols=${cols}&rows=${rows}`;
+  u.search = `?cols=${cols}&rows=${rows}${session ? '&session=' + session : ''}`;
   u.hash = '';
   return u.toString();
 }
@@ -105,8 +113,11 @@ function fitTab(t) {
 }
 
 function closeTab(t) {
-  if (t.state === 'on' && !window.confirm(`关闭 ${t.title} 的终端？正在跑的前台命令会被中断。`)) return;
+  if (t.sessionId && !window.confirm(`关闭 ${t.title} 的终端？正在跑的前台命令会被中断。`)) return;
   t.closing = true;
+  // ending the session is what stops the shell; dropping the socket alone
+  // would leave it running on the server
+  if (t.sessionId) del(`term/sessions/${t.sessionId}`).catch(() => {});
   t.mon.stop();
   if (t.ws) t.ws.close();
   if (t.term) t.term.dispose();
@@ -138,7 +149,7 @@ function showLatency(t, ms) {
 function connect(t) {
   if (t.ws) t.ws.close();
   setState(t, 'wait', '连接中…');
-  const ws = new WebSocket(wsURL(t.instanceId, t.term.cols, t.term.rows));
+  const ws = new WebSocket(wsURL(t.instanceId, t.term.cols, t.term.rows, t.sessionId));
   ws.binaryType = 'arraybuffer';
   t.ws = ws;
   let opened = false;
@@ -155,12 +166,18 @@ function connect(t) {
       return;
     }
     if (m.type === 'ready') {
+      t.sessionId = m.session;
+      // an existing shell sends its recent output next: start from a clean
+      // terminal so what is already on screen is not shown twice
+      if (m.resumed) t.term.reset();
       setState(t, 'on', `已连接 ${t.sub}`);
       sendResize(t);
     } else if (m.type === 'latency') {
       showLatency(t, m.ms);
     } else if (m.type === 'exit') {
+      // the shell is gone: the next connect starts a new one
       t.exitMsg = m.msg;
+      t.sessionId = '';
     }
   };
   ws.onclose = async () => {
@@ -235,9 +252,11 @@ function shellQuote(p) {
   return `'${p.replace(/'/g, `'\\''`)}'`;
 }
 
-async function openTab(x) {
+// openTab adds a tab on instance x; with sessionId it attaches to that
+// shell on the server instead of starting a new one.
+async function openTab(x, sessionId = '') {
   const t = {
-    id: ++seq, instanceId: x.id, state: 'wait',
+    id: ++seq, instanceId: x.id, state: 'wait', sessionId,
     title: `${x.label ? x.label + ' · ' : ''}${x.id}`,
     sub: `${x.num_gpus}× ${x.gpu_name} · ${fmtGeo(x.geolocation)}`,
   };
@@ -346,6 +365,25 @@ async function pickInstance() {
   load();
 }
 
+// restoreTabs puts a tab on every shell the server still holds: after a
+// reload, or when the page is opened in another browser.
+async function restoreTabs() {
+  mount(body, h('div', { class: 'term-empty' }, loading()));
+  try {
+    const [ses, ins] = await Promise.all([get('term/sessions'), get('instances')]);
+    for (const s of ses.sessions) {
+      const x = ins.instances.find((v) => v.id === s.instance_id);
+      if (x && !tabs.some((t) => t.sessionId === s.id)) await openTab(x, s.id);
+    }
+  } catch {
+    // tabs can still be opened by hand
+  }
+  if (tabs.length) activate(tabs[0]);
+  else renderTabs();
+}
+
+let restoring = null;
+
 export async function terminalView(ctx) {
   if (!currentSession().logged_in) {
     ctx.show(h('h1', null, '终端'), h('p', null, '需要先', h('a', { href: loginHash('#/terminal') }, '登录'), '。'));
@@ -356,10 +394,12 @@ export async function terminalView(ctx) {
     body = h('div', { class: 'term-body' });
     root = h('div', { class: 'term-page' }, tabBar, body);
     renderTabs();
+    restoring = restoreTabs();
   }
   ctx.show(root);
   document.body.classList.add('full-page');
   ctx.signal.addEventListener('abort', () => document.body.classList.remove('full-page'));
+  await restoring;
   const want = Number(ctx.query.get('instance'));
   if (want) {
     const open = tabs.find((t) => t.instanceId === want);
@@ -379,7 +419,8 @@ export async function terminalView(ctx) {
   }
 }
 
-// closeAllTerminals drops every tab, as on logout.
+// closeAllTerminals drops every tab, as on logout. The shells stay on the
+// server and come back with the next login.
 export function closeAllTerminals() {
   for (const t of [...tabs]) {
     t.closing = true;
