@@ -79,6 +79,7 @@ func (s *Server) startInputJob(id int64, action string, act *instanceAction) (in
 		j.ActionName = act.name
 	}
 	s.ij.jobs = append(s.ij.jobs, j)
+	log.Printf("input 备份任务 %d（实例 %d）开始，之后：%s", j.ID, id, action)
 	go s.runInputJob(ctx, j, act)
 	return *j, nil
 }

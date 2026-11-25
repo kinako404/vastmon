@@ -6,9 +6,26 @@ import { get } from './api.js';
 // and SSH latency charts, and disk space. It asks the panel every 2 seconds
 // while it is on screen; the panel keeps the history, so a monitor that was
 // hidden for a while catches up on the samples it missed.
+//
+// The GPU 监控 switch at the bottom adds what nvtop shows: per-card usage,
+// memory, temperature, power and fan, a usage / memory chart and the
+// processes on the card. The panel reads it with nvidia-smi only while some
+// browser has the switch on.
 
 const POLL_MS = 2000;
 const SHOW_PROCS = 6;
+
+// GPU_KEY is the localStorage key of the GPU 监控 switch, shared by every
+// monitor; gpuSubs are the open monitors to tell when it flips.
+const GPU_KEY = 'vastmon.sysmonGpu';
+let gpuOn = localStorage.getItem(GPU_KEY) === '1';
+const gpuSubs = new Set();
+
+function setGpuOn(on) {
+  gpuOn = on;
+  localStorage.setItem(GPU_KEY, on ? '1' : '0');
+  for (const fn of gpuSubs) fn();
+}
 
 // short formats bytes compactly: 36K, 2.4M, 109G.
 export function short(n) {
@@ -37,7 +54,9 @@ function fmtUptime(sec) {
 const fmtMs = (ms) => `${ms < 10 ? ms.toFixed(1) : Math.round(ms)}ms`;
 const pct = (used, total) => (total > 0 ? Math.min(100, (used / total) * 100) : 0);
 
-function bar() {
+// bar is a labelled gauge that turns orange at 70% and red at 90%; a plain
+// one keeps one colour (a GPU at 100% is doing its job).
+function bar(plain) {
   const fill = h('div', { class: 'mon-fill' });
   const left = h('span');
   const right = h('span');
@@ -46,7 +65,7 @@ function bar() {
     el,
     set(p, l, r, title) {
       fill.style.width = `${p}%`;
-      fill.className = 'mon-fill' + (p >= 90 ? ' bad' : p >= 70 ? ' warn' : '');
+      fill.className = 'mon-fill' + (plain ? ' plain' : p >= 90 ? ' bad' : p >= 70 ? ' warn' : '');
       left.textContent = l;
       right.textContent = r;
       el.title = title || '';
@@ -64,8 +83,9 @@ function shade(cell, frac, color) {
 // drawChart draws series (oldest first, newest at the right edge) on canvas.
 // Each series is {values, color, line}: bars by default, a line when line is
 // set; a null value is a gap. The scale runs from 0 to the largest value on
-// show (at least floor), with labels at 1/3, 2/3 and the top.
-function drawChart(canvas, series, { floor, fmt }) {
+// show (at least floor), or to ceil when given, with labels at 1/3, 2/3 and
+// the top.
+function drawChart(canvas, series, { floor, ceil, fmt }) {
   const w = canvas.clientWidth;
   const ht = canvas.clientHeight;
   if (!w || !ht) return;
@@ -85,8 +105,8 @@ function drawChart(canvas, series, { floor, fmt }) {
   const plotH = ht - top - 2;
   const fit = Math.max(1, Math.floor((w - gutter) / step));
   const shown = series.map((s) => ({ ...s, values: s.values.slice(-fit) }));
-  let peak = floor;
-  for (const s of shown) for (const v of s.values) if (v !== null && v > peak) peak = v;
+  let peak = ceil || floor;
+  if (!ceil) for (const s of shown) for (const v of s.values) if (v !== null && v > peak) peak = v;
   const y = (v) => top + plotH - (v / peak) * plotH;
 
   g.font = '10px system-ui, sans-serif';
@@ -173,6 +193,25 @@ export function createSysMonitor(instanceId) {
   const diskBody = h('tbody');
   const disks = h('table', { class: 'mon-table mon-disks' },
     h('thead', null, h('tr', null, h('th', null, '路径'), h('th', { class: 'num' }, '可用/大小'))), diskBody);
+  const gpuBox = h('div', { class: 'mon-gpus', hidden: true });
+  // revealGpu: the switch was just turned on here, so scroll down to the GPU
+  // block once it has something to show (on a short window it is below the fold).
+  let revealGpu = false;
+  const gpuSwitch = h('input', {
+    type: 'checkbox', class: 'mon-switch', checked: gpuOn,
+    onchange: () => {
+      revealGpu = gpuSwitch.checked;
+      setGpuOn(gpuSwitch.checked);
+    },
+  });
+  const foot = h('label', {
+    class: 'mon-foot',
+    title: '显示 nvtop 里的那些：每张卡的占用、显存、温度、功耗、风扇，占用 / 显存曲线，和卡上的进程。打开时实例上每 2 秒多跑两次 nvidia-smi（各几十毫秒），关掉就不跑',
+  }, gpuSwitch, h('span', null, 'GPU 监控'), h('span', { class: 'muted' }, 'nvtop'));
+  // gpuEls keeps each card's elements, so a refresh updates them in place
+  // and the charts are not recreated.
+  let gpuEls = [];
+  let gpuShape = '';
   const msg = h('div', { class: 'mon-msg' }, '读取中…');
   const content = h('div', { class: 'mon-body', hidden: true },
     h('div', { class: 'mon-head' }, upEl, loadEl),
@@ -182,8 +221,79 @@ export function createSysMonitor(instanceId) {
     netChart,
     h('div', { class: 'mon-line' }, latNow, h('span', { class: 'muted', title: '面板服务器到这台实例的 SSH 往返延迟' }, '面板 → 实例')),
     latChart,
-    disks);
-  const el = h('div', { class: 'mon' }, msg, content);
+    disks,
+    gpuBox);
+  const el = h('div', { class: 'mon' }, msg, content, foot);
+
+  function gpuBlock(g) {
+    const util = bar(true);
+    const mem = bar();
+    const meta = h('div', { class: 'mon-gpu-meta' });
+    const chart = h('canvas', { class: 'mon-chart' });
+    const name = g.name.replace(/^NVIDIA\s+/, '');
+    const block = h('div', { class: 'mon-gpu' },
+      h('div', { class: 'mon-gpu-name', title: `GPU ${g.index} · ${g.name}` }, h('span', { class: 'strong' }, `GPU ${g.index}`), ` ${name}`),
+      row('占用', util), row('显存', mem), meta,
+      h('div', { class: 'mon-line' }, h('span', null, h('span', { class: 'mon-key-gpu' }, '— 占用'), h('span', { class: 'mon-key-mem' }, '— 显存')), h('span', { class: 'muted' }, '%')),
+      chart);
+    return { block, util, mem, meta, chart };
+  }
+
+  function renderGpuCharts() {
+    gpuEls.forEach((e, i) => {
+      const pts = samples.map((s) => (s.gpu && s.gpu[i]) || null);
+      const pick = (k) => pts.map((p) => (p && p[k] >= 0 ? p[k] : null));
+      drawChart(e.chart, [
+        { values: pick(1), color: '--warn', line: true },
+        { values: pick(0), color: '--accent', line: true },
+      ], { ceil: 100, fmt: (v) => `${Math.round(v)}` });
+    });
+  }
+
+  function renderGpu() {
+    gpuSwitch.checked = gpuOn;
+    gpuBox.hidden = !gpuOn;
+    if (!gpuOn) return;
+    const info = now && now.gpu;
+    if (!info || info.error) {
+      gpuEls = [];
+      gpuShape = '';
+      mount(gpuBox, info ? h('div', { class: 'mon-gpu-err' }, `读不到 GPU：${info.error}`) : h('div', { class: 'muted' }, '读取 GPU…'));
+      return;
+    }
+    const shape = info.gpus.map((g) => `${g.index}:${g.name}`).join('\n');
+    const procBody = shape === gpuShape ? gpuBox.querySelector('.mon-gpu-procs tbody') : h('tbody');
+    if (shape !== gpuShape) {
+      gpuShape = shape;
+      gpuEls = info.gpus.map(gpuBlock);
+      mount(gpuBox, gpuEls.map((e) => e.block), h('table', { class: 'mon-table mon-procs mon-gpu-procs' },
+        h('thead', null, h('tr', null, h('th', { class: 'num' }, '显存'), h('th', { class: 'num' }, 'GPU'), h('th', null, '命令'))), procBody));
+    }
+    const val = (v, unit, d = 0) => (v === null ? null : `${v.toFixed(d)}${unit}`);
+    info.gpus.forEach((g, i) => {
+      const e = gpuEls[i];
+      const u = g.util === null ? 0 : g.util;
+      e.util.set(u, g.util === null ? '—' : `${Math.round(u)}%`, val(g.temp, '°C') || '', 'GPU 占用：最近一小段时间里有内核在跑的时间比例');
+      const mp = pct(g.mem_used, g.mem_total);
+      e.mem.set(mp, `${Math.round(mp)}%`, `${short(g.mem_used)}/${short(g.mem_total)}`, '显存');
+      const power = g.power === null ? null : `${Math.round(g.power)}W${g.power_limit === null ? '' : ` / ${Math.round(g.power_limit)}W`}`;
+      e.meta.textContent = [power, g.fan === null ? null : `风扇 ${Math.round(g.fan)}%`].filter(Boolean).join(' · ');
+      e.meta.title = '功耗 / 功耗上限 · 风扇转速';
+    });
+    const many = info.gpus.length > 1;
+    mount(procBody, info.procs.length ? info.procs.map((p) => {
+      const card = info.gpus.find((g) => g.index === p.gpu);
+      return h('tr', { title: `${p.name} · PID ${p.pid}${many ? ` · GPU ${p.gpu}` : ''} · ${p.type === 'G' ? '图形' : '计算'}\n显存 ${short(p.mem)} · GPU ${p.util === null ? '—' : p.util + '%'} · CPU ${p.cpu.toFixed(1)}%` },
+        shade(h('td', { class: 'num' }, short(p.mem)), p.mem / ((card && card.mem_total) || 1), '--warn'),
+        shade(h('td', { class: 'num' }, p.util === null ? '—' : Math.round(p.util)), (p.util || 0) / 100, '--accent'),
+        h('td', { class: 'mon-cmd' }, many ? `${p.gpu}: ${p.name}` : p.name));
+    }) : h('tr', null, h('td', { colspan: '3', class: 'muted' }, '卡上没有进程')));
+    renderGpuCharts();
+    if (revealGpu) {
+      revealGpu = false;
+      el.scrollTop = el.scrollHeight;
+    }
+  }
 
   function renderProcs() {
     for (const b of procHead.querySelectorAll('button')) b.classList.toggle('on', b.dataset.key === sortKey);
@@ -240,6 +350,7 @@ export function createSysMonitor(instanceId) {
       h('td', { class: 'mon-cmd' }, d.path),
       h('td', { class: 'num' }, `${short(d.avail)}/${short(d.size)}`)),
     (d.size - d.avail) / (d.size || 1), pct(d.size - d.avail, d.size) >= 90 ? '--danger' : '--accent')));
+    renderGpu();
   }
 
   function apply(res) {
@@ -274,7 +385,7 @@ export function createSysMonitor(instanceId) {
     }
     busy = true;
     try {
-      const res = await get(`instances/${instanceId}/monitor?epoch=${epoch}&after=${after}`);
+      const res = await get(`instances/${instanceId}/monitor?epoch=${epoch}&after=${after}${gpuOn ? '&gpu=1' : ''}`);
       if (!stopped) apply(res);
     } catch (err) {
       mount(msg, errorBox(err));
@@ -290,8 +401,16 @@ export function createSysMonitor(instanceId) {
     if (!now || !onScreen()) return;
     renderNet();
     renderLatency();
+    if (gpuOn) renderGpuCharts();
   });
   ro.observe(el);
+  // the switch was flipped, here or in another tab: show / hide at once and
+  // fetch without waiting for the next round
+  const onGpu = () => {
+    renderGpu();
+    tick();
+  };
+  gpuSubs.add(onGpu);
   tick();
 
   return {
@@ -302,6 +421,7 @@ export function createSysMonitor(instanceId) {
       stopped = true;
       clearInterval(timer);
       ro.disconnect();
+      gpuSubs.delete(onGpu);
     },
   };
 }

@@ -19,6 +19,11 @@ import (
 // vast 的实例是容器：/proc/stat、/proc/meminfo 是整台宿主机的，所以 CPU 和内存优先用
 // cgroup v2（cpu.stat / cpu.max、memory.current / memory.max），没有才退回 /proc。
 // 负载（/proc/loadavg）拿不到容器自己的，显示的是宿主机的。
+//
+// GPU（监控栏底下的开关）：有浏览器带着 gpu=1 来取时，循环里多跑两次 nvidia-smi（各几十毫秒）：
+// 每张卡的占用 / 显存 / 温度 / 功耗 / 风扇，和 pmon 给的各进程占用。要不要采 GPU 变了就把
+// 会话重开一次。不直接用 nvtop：Ubuntu 24.04 源里的 nvtop 3.0.2 只有全屏界面，没有输出数据的
+// 选项；两者读的都是 NVML。
 
 const (
 	monKeep  = 300 // 留多少个采样点（每 2 秒一个，10 分钟）
@@ -47,6 +52,15 @@ while :; do
   done
   echo "@@net"; cat /proc/net/dev
   echo "@@procs"; cat /proc/[0-9]*/stat 2>/dev/null
+  if [ -n "$gpu" ]; then
+    echo "@@gpu"
+    if command -v nvidia-smi >/dev/null 2>&1; then
+      $t nvidia-smi --query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,power.limit,fan.speed --format=csv,noheader,nounits 2>&1
+      echo "@@gpuproc"; $t nvidia-smi pmon -c 1 -s um 2>/dev/null
+    else
+      echo "这台实例上没有 nvidia-smi"
+    fi
+  fi
   if [ $((n % 5)) -eq 0 ]; then
     echo "@@df"
     $t df -P -k 2>/dev/null | tail -n +2 | while read -r fs blocks used avail cap mnt; do
@@ -73,6 +87,35 @@ type monDisk struct {
 	Avail int64  `json:"avail"`
 }
 
+// monGPU 是一张卡；读不到的项（比如没有风扇的服务器卡）是 null。
+type monGPU struct {
+	Index      int      `json:"index"`
+	Name       string   `json:"name"`
+	Util       *float64 `json:"util"`
+	MemUsed    int64    `json:"mem_used"`
+	MemTotal   int64    `json:"mem_total"`
+	Temp       *float64 `json:"temp"`
+	Power      *float64 `json:"power"`
+	PowerLimit *float64 `json:"power_limit"`
+	Fan        *float64 `json:"fan"`
+}
+
+type monGPUProc struct {
+	GPU  int      `json:"gpu"`
+	PID  int      `json:"pid"`
+	Type string   `json:"type"` // C 计算 / G 图形
+	Name string   `json:"name"`
+	Util *float64 `json:"util"` // 占这张卡的百分比，没在算时是 null
+	Mem  int64    `json:"mem"`  // 显存，字节
+	CPU  float64  `json:"cpu"`
+}
+
+type monGPUInfo struct {
+	GPUs  []monGPU     `json:"gpus"`
+	Procs []monGPUProc `json:"procs"`
+	Error string       `json:"error"`
+}
+
 type monUsage struct {
 	Used  int64 `json:"used"`
 	Total int64 `json:"total"`
@@ -93,6 +136,8 @@ type monSnapshot struct {
 	NProcs int       `json:"nprocs"`
 	Disks  []monDisk `json:"disks"`
 	Ifaces []string  `json:"ifaces"`
+	// GPU 只在有人要（gpu=1）时才有。
+	GPU *monGPUInfo `json:"gpu"`
 }
 
 type monSample struct {
@@ -103,13 +148,16 @@ type monSample struct {
 	Lat float64 `json:"lat"`
 	// Net 是每个网卡的 [下行, 上行]，字节 / 秒。
 	Net map[string][2]float64 `json:"net"`
+	// GPU 是每张卡的 [占用 %, 显存 %]，读不到是 -1；没采 GPU 时没有这一项。
+	GPU [][2]float64 `json:"gpu,omitempty"`
 }
 
 type sysMon struct {
 	id    int64
 	epoch int64
-	// lastPoll 由 monManager.mu 保护。
+	// lastPoll、lastGPU（最近一次有人要 GPU 数据）由 monManager.mu 保护。
 	lastPoll time.Time
+	lastGPU  time.Time
 
 	mu      sync.Mutex
 	seq     int64
@@ -145,6 +193,9 @@ func (s *Server) sysMonitor(w http.ResponseWriter, r *http.Request) {
 		go s.runSysMon(m)
 	}
 	m.lastPoll = time.Now()
+	if q.Get("gpu") == "1" {
+		m.lastGPU = m.lastPoll
+	}
 	s.sm.mu.Unlock()
 
 	m.mu.Lock()
@@ -172,6 +223,16 @@ func (s *Server) monIsIdle(m *sysMon, remove bool) bool {
 	return idle
 }
 
+// monWantsGPU 报告最近有没有浏览器要 GPU 数据。
+func (s *Server) monWantsGPU(m *sysMon) bool {
+	s.sm.mu.Lock()
+	defer s.sm.mu.Unlock()
+	return time.Since(m.lastGPU) <= monIdle
+}
+
+// errMonRestart：要不要采 GPU 变了，会话是自己关掉准备重开的，不算出错。
+var errMonRestart = errors.New("restart")
+
 func (s *Server) runSysMon(m *sysMon) {
 	fails := 0
 	for {
@@ -179,6 +240,9 @@ func (s *Server) runSysMon(m *sysMon) {
 		err := s.sysMonSession(m)
 		if s.monIsIdle(m, true) {
 			return
+		}
+		if errors.Is(err, errMonRestart) {
+			continue
 		}
 		m.mu.Lock()
 		m.err = errString(err)
@@ -242,15 +306,22 @@ func (s *Server) sysMonSession(m *sysMon) error {
 	}
 	var stderr tailBuffer
 	sess.Stderr = &stderr
-	if err := sess.Start("exec sh -c " + shellQuote(monScript)); err != nil {
+	gpu := s.monWantsGPU(m)
+	script := monScript
+	if gpu {
+		script = "gpu=1\n" + script
+	}
+	if err := sess.Start("exec sh -c " + shellQuote(script)); err != nil {
 		return err
 	}
 	done := make(chan struct{})
 	defer close(done)
 
 	// 没人看了就关会话；实例上的循环下一次输出时收到 SIGPIPE 退出。
+	// 要不要采 GPU 变了也关，外面马上重开。
+	var restart atomic.Bool
 	go func() {
-		t := time.NewTicker(2 * time.Second)
+		t := time.NewTicker(time.Second)
 		defer t.Stop()
 		for {
 			select {
@@ -258,6 +329,11 @@ func (s *Server) sysMonSession(m *sysMon) error {
 				return
 			case <-t.C:
 				if s.monIsIdle(m, false) {
+					sess.Close()
+					return
+				}
+				if s.monWantsGPU(m) != gpu {
+					restart.Store(true)
 					sess.Close()
 					return
 				}
@@ -307,6 +383,9 @@ func (s *Server) sysMonSession(m *sysMon) error {
 		m.err = ""
 		m.mu.Unlock()
 	}
+	if restart.Load() {
+		return errMonRestart
+	}
 	if err := sc.Err(); err != nil {
 		return err
 	}
@@ -329,6 +408,8 @@ type monFrame struct {
 	procs     map[int]monRawProc
 	disks     []monDisk
 	hasDF     bool
+	gpu       *monGPUInfo
+	pmonCols  map[string]int // nvidia-smi pmon 表头里各列的位置
 }
 
 type monRawProc struct {
@@ -382,6 +463,11 @@ func (ps *monParser) line(line string) (*monSnapshot, *monSample) {
 		if ps.cur != nil {
 			ps.cur.hasDF = true
 		}
+	case "gpu":
+		ps.section = "gpu"
+		if ps.cur != nil {
+			ps.cur.gpu = &monGPUInfo{GPUs: []monGPU{}, Procs: []monGPUProc{}}
+		}
 	case "end":
 		cur := ps.cur
 		ps.cur = nil
@@ -415,12 +501,77 @@ func positive(v, def float64) float64 {
 	return def
 }
 
+// smiNum 读 nvidia-smi 的一个数；[N/A]、[Not Supported]、- 这些读不到的是 nil。
+func smiNum(v string) *float64 {
+	n, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+	if err != nil {
+		return nil
+	}
+	return &n
+}
+
+func smiMiB(v string) int64 {
+	if n := smiNum(v); n != nil {
+		return int64(*n) << 20
+	}
+	return 0
+}
+
+// addGPU 解析 --query-gpu 的一行：序号, 型号, 占用, 已用显存, 总显存, 温度, 功耗, 功耗上限, 风扇。
+// 不是这个样子的行（nvidia-smi 报错）记成错误。
+func (f *monFrame) addGPU(line string) {
+	p := strings.Split(line, ", ")
+	idx, err := strconv.Atoi(strings.TrimSpace(p[0]))
+	if len(p) != 9 || err != nil {
+		if f.gpu.Error == "" {
+			f.gpu.Error = strings.TrimSpace(line)
+		}
+		return
+	}
+	f.gpu.GPUs = append(f.gpu.GPUs, monGPU{Index: idx, Name: strings.TrimSpace(p[1]), Util: smiNum(p[2]),
+		MemUsed: smiMiB(p[3]), MemTotal: smiMiB(p[4]), Temp: smiNum(p[5]), Power: smiNum(p[6]), PowerLimit: smiNum(p[7]), Fan: smiNum(p[8])})
+}
+
+// addGPUProc 解析 nvidia-smi pmon 的输出。各版本驱动的列不一样多，按第一行表头
+// （# gpu pid type sm mem enc dec … fb … command）找列。
+func (f *monFrame) addGPUProc(fs []string) {
+	if fs[0] == "#" {
+		if f.pmonCols == nil {
+			f.pmonCols = map[string]int{}
+			for i, name := range fs[1:] {
+				f.pmonCols[name] = i
+			}
+		}
+		return
+	}
+	col := func(name string) string {
+		if i, ok := f.pmonCols[name]; ok && i < len(fs) {
+			return fs[i]
+		}
+		return ""
+	}
+	pid, err := strconv.Atoi(col("pid"))
+	if err != nil { // 没有进程时 pmon 输出一行全是 -
+		return
+	}
+	gpu, _ := strconv.Atoi(col("gpu"))
+	name := ""
+	if i, ok := f.pmonCols["command"]; ok && i < len(fs) {
+		name = strings.Join(fs[i:], " ")
+	}
+	f.gpu.Procs = append(f.gpu.Procs, monGPUProc{GPU: gpu, PID: pid, Type: col("type"), Name: name, Util: smiNum(col("sm")), Mem: smiMiB(col("fb"))})
+}
+
 func (f *monFrame) add(section, line string) {
 	fs := strings.Fields(line)
 	if len(fs) == 0 {
 		return
 	}
 	switch {
+	case section == "gpu":
+		f.addGPU(line)
+	case section == "gpuproc":
+		f.addGPUProc(fs)
 	case section == "uptime":
 		f.up = atof(fs[0])
 	case section == "loadavg":
@@ -614,6 +765,36 @@ func (ps *monParser) diff(prev, cur *monFrame) (*monSnapshot, *monSample) {
 	take(func(p monProc) float64 { return float64(p.Mem) })
 
 	sample := &monSample{Time: cur.time, CPU: snap.CPU, Net: map[string][2]float64{}}
+	if g := cur.gpu; g != nil {
+		snap.GPU = g
+		if len(g.GPUs) == 0 && g.Error == "" {
+			g.Error = "nvidia-smi 没有列出显卡"
+		}
+		// 进程的 CPU 占用（和读不到名字时的名字）从上面的进程表里按 PID 补。
+		byPID := make(map[int]monProc, len(all))
+		for _, p := range all {
+			byPID[p.PID] = p
+		}
+		for i := range g.Procs {
+			if p, ok := byPID[g.Procs[i].PID]; ok {
+				g.Procs[i].CPU = p.CPU
+				if g.Procs[i].Name == "" || g.Procs[i].Name == "-" {
+					g.Procs[i].Name = p.Name
+				}
+			}
+		}
+		sort.SliceStable(g.Procs, func(i, j int) bool { return g.Procs[i].Mem > g.Procs[j].Mem })
+		for _, c := range g.GPUs {
+			pt := [2]float64{-1, -1}
+			if c.Util != nil {
+				pt[0] = *c.Util
+			}
+			if c.MemTotal > 0 {
+				pt[1] = float64(c.MemUsed) / float64(c.MemTotal) * 100
+			}
+			sample.GPU = append(sample.GPU, pt)
+		}
+	}
 	for name, c := range cur.net {
 		snap.Ifaces = append(snap.Ifaces, name)
 		rate := [2]float64{}

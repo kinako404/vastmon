@@ -40,7 +40,7 @@ vastmon polls the offers every two minutes, applies your filters, and ranks mach
 **Web terminal and files**
 - Tabbed terminal (xterm.js) showing the panel-to-instance SSH latency, with a one-click clear
 - File browser: upload, download, delete files, edit text files in the browser, preview images and videos, with a folder tree underneath for jumping between directories
-- System monitor: a column next to the terminal with uptime, load, CPU / memory / swap, the busiest processes, network speed and SSH latency charts, and disk space (CPU and memory are measured against the container's quota, not the whole host)
+- System monitor: a column next to the terminal with uptime, load, CPU / memory / swap, the busiest processes, network speed and SSH latency charts, and disk space (CPU and memory are measured against the container's quota, not the whole host); the *GPU 监控* switch at the bottom adds what nvtop shows — per-card usage, memory, temperature, power, fan, a chart and the processes on the card
 
 **Startup downloader**
 - Define one or more download lists (URL + target directory) in the settings; Hugging Face and Civitai are supported, tokens included
