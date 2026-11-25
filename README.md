@@ -40,6 +40,7 @@ vastmon 每隔两分钟抓一次报价，按你的条件过滤，并把「单价
 **网页终端与文件**
 - 多标签终端（xterm.js），显示面板到实例的 SSH 延迟，一键清屏
 - 文件浏览器：上传、下载、删除文件、在线编辑文本、预览图片和视频，下方有目录树可以快速切换目录
+- 系统监控：终端左边一栏，显示运行时间、负载、CPU / 内存 / 交换、占用最高的进程、网速和 SSH 延迟曲线、磁盘空间（CPU 和内存按容器配额算，不是整台宿主机）
 
 **启动下载器**
 - 在设置里配置几套下载列表（链接 + 目标目录），支持 Hugging Face 与 Civitai（含 token）
@@ -267,6 +268,7 @@ internal/panel/       面板本体（Go）：
   favorites.go blacklist.go         收藏、黑名单
   bench.go bench.py baselines*.go   算力检测与性能基准库
   term.go files.go sshpool.go ssh_settings.go   网页终端、文件浏览、SSH
+  sysmon.go             终端页的系统监控
   downloads*.go comfy_input.go      启动下载器、ComfyUI input 同步
   scripts.go            开机脚本、变量、文件库
   notify.go webpush.go billing.go   浏览器通知、账单

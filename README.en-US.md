@@ -40,6 +40,7 @@ vastmon polls the offers every two minutes, applies your filters, and ranks mach
 **Web terminal and files**
 - Tabbed terminal (xterm.js) showing the panel-to-instance SSH latency, with a one-click clear
 - File browser: upload, download, delete files, edit text files in the browser, preview images and videos, with a folder tree underneath for jumping between directories
+- System monitor: a column next to the terminal with uptime, load, CPU / memory / swap, the busiest processes, network speed and SSH latency charts, and disk space (CPU and memory are measured against the container's quota, not the whole host)
 
 **Startup downloader**
 - Define one or more download lists (URL + target directory) in the settings; Hugging Face and Civitai are supported, tokens included
@@ -267,6 +268,7 @@ internal/panel/       the panel (Go):
   favorites.go blacklist.go         favorites and blacklist
   bench.go bench.py baselines*.go   benchmark and baseline database
   term.go files.go sshpool.go ssh_settings.go   web terminal, file browser, SSH
+  sysmon.go             system monitor on the terminal page
   downloads*.go comfy_input.go      startup downloader, ComfyUI input sync
   scripts.go            startup scripts, variables, file library
   notify.go webpush.go billing.go   browser notifications, billing

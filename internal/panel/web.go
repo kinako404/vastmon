@@ -32,6 +32,7 @@ type Server struct {
 
 	bill billingCache
 	pool sshPool
+	sm   monManager
 	dl   dlManager
 	sc   scriptManager
 	// inputMu 让 input 备份一次只合并一个。
@@ -99,6 +100,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("PUT /api/baselines", s.auth.require(s.saveBaseline))
 	mux.HandleFunc("DELETE /api/baselines/{bid}", s.auth.require(s.deleteBaseline))
 	mux.HandleFunc("POST /api/baselines/reset", s.auth.require(s.resetBaselines))
+	mux.HandleFunc("GET /api/instances/{id}/monitor", s.auth.require(s.sysMonitor))
 	mux.HandleFunc("GET /api/term/{id}/ws", s.auth.require(s.terminal))
 	mux.HandleFunc("GET /api/term/{id}/check", s.auth.require(s.termCheck))
 	mux.HandleFunc("GET /api/files/{id}/list", s.auth.require(s.listFiles))

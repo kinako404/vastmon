@@ -3,11 +3,28 @@ import { get, currentSession, loginHash } from '../lib/api.js';
 import { openDialog } from '../lib/dialog.js';
 import { fmtGeo } from '../lib/geo.js';
 import { createFileBrowser } from '../lib/filebrowser.js';
+import { createSysMonitor } from '../lib/sysmon.js';
 
 // The terminal page keeps its tabs alive across page changes: the module
 // holds them, and the view only re-attaches the root element. Each tab is
-// one instance: an xterm.js shell over a WebSocket on the left and a file
+// one instance: a system monitor column on the left (监控 in the status bar
+// hides it), an xterm.js shell over a WebSocket in the middle and a file
 // browser on the right.
+
+// MON_KEY is the localStorage key remembering that the monitor is hidden.
+const MON_KEY = 'vastmon.sysmon';
+const monHidden = () => localStorage.getItem(MON_KEY) === '0';
+
+// toggleMonitors shows or hides the monitor column in every tab.
+function toggleMonitors() {
+  const hide = !monHidden();
+  localStorage.setItem(MON_KEY, hide ? '0' : '1');
+  for (const t of tabs) {
+    t.mon.el.hidden = hide;
+    t.monBtn.classList.toggle('on', !hide);
+    if (!hide) t.mon.refresh();
+  }
+}
 
 let xtermMods = null;
 function loadXterm() {
@@ -90,6 +107,7 @@ function fitTab(t) {
 function closeTab(t) {
   if (t.state === 'on' && !window.confirm(`关闭 ${t.title} 的终端？正在跑的前台命令会被中断。`)) return;
   t.closing = true;
+  t.mon.stop();
   if (t.ws) t.ws.close();
   if (t.term) t.term.dispose();
   if (t.ro) t.ro.disconnect();
@@ -233,14 +251,22 @@ async function openTab(x) {
     title: '清掉终端里的内容和残留的显示状态（比如断线后 nvtop、htop 的残影）；连着时让 shell 重新显示提示符',
     onclick: () => clearTerm(t),
   }, '清屏');
-  const shellPane = h('div', { class: 'term-shell' }, shellBox, h('div', { class: 'term-bar' }, t.status, clearBtn));
+  t.mon = createSysMonitor(x.id);
+  t.mon.el.hidden = monHidden();
+  t.monBtn = h('button', {
+    type: 'button', class: 'term-clear term-mon-toggle' + (monHidden() ? '' : ' on'),
+    title: '显示 / 隐藏左边的系统监控（CPU、内存、进程、网速、延迟、磁盘）',
+    onclick: toggleMonitors,
+  }, '监控');
+  const shellPane = h('div', { class: 'term-shell' }, shellBox, h('div', { class: 'term-bar' }, t.status, t.monBtn, clearBtn));
   const splitter = h('div', { class: 'term-splitter', title: '拖动调整宽度' });
   const filePane = h('div', { class: 'term-files' }, files.el);
-  t.el = h('div', { class: 'term-pane' }, shellPane, splitter, filePane);
+  const main = h('div', { class: 'term-main' }, shellPane, splitter, filePane);
+  t.el = h('div', { class: 'term-pane' }, t.mon.el, main);
   splitter.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     splitter.setPointerCapture(e.pointerId);
-    const box = t.el.getBoundingClientRect();
+    const box = main.getBoundingClientRect();
     const move = (ev) => {
       const frac = Math.min(0.85, Math.max(0.25, (ev.clientX - box.left) / box.width));
       shellPane.style.flexBasis = `${frac * 100}%`;
@@ -257,6 +283,7 @@ async function openTab(x) {
   if (body.querySelector('.term-empty')) body.replaceChildren();
   body.appendChild(t.el);
   activate(t);
+  t.mon.refresh();
   mount(t.status, loading());
   const [{ Terminal }, { FitAddon }] = await loadXterm();
   if (t.closing) return;
@@ -356,6 +383,7 @@ export async function terminalView(ctx) {
 export function closeAllTerminals() {
   for (const t of [...tabs]) {
     t.closing = true;
+    t.mon.stop();
     if (t.ws) t.ws.close();
     if (t.term) t.term.dispose();
     if (t.ro) t.ro.disconnect();
