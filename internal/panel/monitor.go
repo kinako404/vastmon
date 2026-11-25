@@ -88,5 +88,8 @@ func loadFilter(st *Store) Filter {
 	if _, err := st.Get("filter", &f); err != nil {
 		log.Printf("读取过滤条件失败: %v", err)
 	}
+	if _, ok := sortKeys[f.Sort]; !ok {
+		f.Sort, f.Desc = "est", false
+	}
 	return f
 }

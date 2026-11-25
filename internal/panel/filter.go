@@ -98,15 +98,8 @@ var sortKeys = map[string]func(Row) float64{
 	"ram":     func(r Row) float64 { return r.CPURam },
 	"disk":    func(r Row) float64 { return r.Disk },
 	"rel":     func(r Row) float64 { return r.Reliability },
-	"dlperf":  func(r Row) float64 { return r.DLPerf },
-	"dlp_dph": func(r Row) float64 {
-		if r.Dph <= 0 {
-			return 0
-		}
-		return r.DLPerf / r.Dph
-	},
-	"days":  func(r Row) float64 { return r.Duration },
-	"first": func(r Row) float64 { return float64(r.FirstSeen) },
+	"days":    func(r Row) float64 { return r.Duration },
+	"first":   func(r Row) float64 { return float64(r.FirstSeen) },
 }
 
 // Apply 过滤、算估算日费并排序。

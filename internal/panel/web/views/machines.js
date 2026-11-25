@@ -59,6 +59,15 @@ function costCell(v) {
   return h('span', { class: costClass(v) }, fixed(v, 1));
 }
 
+// gpuPerf is the GPU cell's hover text: vast's reference compute figures.
+function gpuPerf(r) {
+  if (!r.dlperf) return 'vast 没给算力参考值';
+  return [`DLPerf ${fixed(r.dlperf, 1)}（vast 的整机通用深度学习基准分）`,
+    `${fixed(r.total_flops, 1)} TFLOPS（vast 标称）`,
+    r.dph_total ? `${fixed(r.dlperf / r.dph_total, 1)} DLP/$/h（DLPerf ÷ $/h，越高越划算）` : null,
+    '都是 vast 的估算参考值，不是实测'].filter(Boolean).join('\n');
+}
+
 function columns(disk, rentCol, marks) {
   return [
     {
@@ -72,19 +81,10 @@ function columns(disk, rentCol, marks) {
       ],
     },
     rentCol,
-    { title: 'GPU', class: 'nowrap', cell: (r) => [`${r.num_gpus}× ${r.gpu_name} `, h('span', { class: 'muted' }, gb(r.gpu_ram) + 'G')] },
     {
-      title: 'DLPerf',
-      key: 'dlperf',
-      class: 'num',
-      cell: (r) => (r.dlperf ? h('span', { title: `vast 给的通用深度学习基准分（整机，估算的参考值，不是实测）\n${fixed(r.total_flops, 1)} TFLOPS（vast 标称）` },
-        h('span', { class: 'strong' }, fixed(r.dlperf, 1)), h('span', { class: 'muted' }, ` · ${fixed(r.total_flops, 0)}T`)) : '—'),
-    },
-    {
-      title: 'DLP/$/h',
-      key: 'dlp_dph',
-      class: 'num',
-      cell: (r) => (r.dlperf && r.dph_total ? h('span', { title: '每 $1/h 买到的 DLPerf，越高越划算（按含磁盘费的 $/h 算）' }, fixed(r.dlperf / r.dph_total, 1)) : '—'),
+      title: 'GPU',
+      class: 'nowrap',
+      cell: (r) => h('span', { title: gpuPerf(r) }, `${r.num_gpus}× ${r.gpu_name} `, h('span', { class: 'muted' }, gb(r.gpu_ram) + 'G')),
     },
     {
       title: 'CPU · 分到的核',
@@ -379,7 +379,7 @@ export async function machinesView(ctx) {
     h('section', { class: 'card' }, h('div', { class: 'table-tools' }, firstToggle), tableBox, geoSwitch),
     h('p', { class: 'hint' },
       '$/h 已含磁盘费（按 ' + st.disk + ' GB 计）。估算 $/天 = 单价 × 24 + 每天下行 GB × 下行流量费 + 每天上行 GB × 上行流量费（$/TB 按 1024 GB 折算）。',
-      'DLPerf 是 vast 给的通用深度学习基准分（整机），和 TFLOPS 一样是 vast 的参考值，不是实测；DLP/$/h = DLPerf ÷ $/h。',
+      '鼠标停在 GPU 名上可以看 vast 给的算力参考值（DLPerf、TFLOPS、DLP/$/h），不是实测。',
       '流量费颜色：', h('span', { class: 'cost-ok' }, '< 8'), ' / ', h('span', { class: 'cost-warn' }, '8–20'), ' / ',
       h('span', { class: 'cost-bad' }, '≥ 20'), ' $/TB。', `每 ${POLL_MS / 1000} 秒自动刷新列表。`));
 
