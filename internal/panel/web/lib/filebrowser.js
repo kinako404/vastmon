@@ -1,13 +1,13 @@
 import { h, mount, errorBox } from './dom.js';
-import { get } from './api.js';
+import { get, del } from './api.js';
 import { fmtClock } from './format.js';
-import { copyText } from './dialog.js';
+import { confirmDialog, copyText } from './dialog.js';
 import { openViewer, mediaKind } from './viewer.js';
 
 // createFileBrowser lists files on an instance over SFTP: click a folder to
 // open it, double-click a picture or video to view it, right-click for the
-// rest (download, open in the text editor, copy the path, cd the terminal
-// there). Files dropped on it or picked with 上传 go to the current folder.
+// rest (download, open in the text editor, delete, copy the path, cd the
+// terminal there). Files dropped on it or picked with 上传 go to the current folder.
 // opts.onCd(dir), when given, adds “在终端 cd 到这里”.
 
 const join = (dir, name) => (dir === '/' ? '' : dir) + '/' + name;
@@ -105,6 +105,30 @@ export function createFileBrowser(instanceId, opts = {}) {
     }
   }
 
+  // remove deletes one file after a confirmation; the list is updated in
+  // place so a long folder keeps its scroll position.
+  function remove(e) {
+    const dir = cwd;
+    const p = join(dir, e.name);
+    confirmDialog({
+      title: '删除文件',
+      message: [
+        h('p', null, '要删除实例上的这个文件吗？删掉之后不能恢复。'),
+        h('p', { class: 'mono fb-del-path' }, p),
+        h('p', { class: 'muted' }, e.link ? '这是一个链接，只删链接本身，它指向的文件不动。' : `大小 ${fmtBytes(e.size)}`),
+      ],
+      confirmText: '删除',
+      danger: true,
+      run: async () => {
+        await del(`files/${instanceId}/file?path=${encodeURIComponent(p)}`);
+        if (dir !== cwd) return;
+        entries = entries.filter((x) => x.name !== e.name);
+        render();
+        setStatus(`已删除 ${p}`);
+      },
+    });
+  }
+
   function menuFor(ev, e) {
     const p = e ? join(cwd, e.name) : cwd;
     const cd = opts.onCd;
@@ -122,6 +146,8 @@ export function createFileBrowser(instanceId, opts = {}) {
         ['-'],
         ['复制路径', () => copyPath(p)],
         cd ? ['在终端 cd 到所在目录', () => cd(cwd)] : null,
+        ['-'],
+        ['删除', () => remove(e), 'danger'],
       ]);
     }
   }

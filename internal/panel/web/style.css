@@ -385,6 +385,7 @@ button.fb-name.dir { font-weight: 600; }
 .ctx-item { display: block; width: 100%; text-align: left; border: none; background: none; padding: 6px 10px; border-radius: 4px; }
 .ctx-item:hover { background: var(--code-bg); }
 .ctx-sep { height: 1px; background: var(--border); margin: 4px 0; }
+.fb-del-path { overflow-wrap: anywhere; }
 
 ul.pick-list li { margin-bottom: 6px; }
 button.pick { display: block; width: 100%; text-align: left; white-space: normal; }

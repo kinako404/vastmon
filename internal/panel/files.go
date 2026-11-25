@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-// 文件浏览：经 SFTP 读写实例上的文件。路径都是实例上的绝对路径（POSIX）。
+// 文件浏览：经 SFTP 读写、删除实例上的文件。路径都是实例上的绝对路径（POSIX）。
 // 所有文件响应都带 CSP sandbox + nosniff：实例上的 html/svg 就算被直接打开，
 // 也不能在面板的域名下跑脚本。只有图片 / 视频 / 音频 / 纯文本允许在浏览器里内联显示。
 
@@ -253,6 +253,39 @@ func (s *Server) uploadFiles(w http.ResponseWriter, r *http.Request) {
 		done = append(done, map[string]any{"name": name, "size": n})
 	}
 	writeJSON(w, map[string]any{"uploaded": done})
+}
+
+// deleteFile 删一个文件。只删文件和链接本身（链接指向的东西不动），目录不删。
+func (s *Server) deleteFile(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	p, err := cleanRemote(r.URL.Query().Get("path"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+		return
+	}
+	c, err := s.sftpClient(id)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "SSH", err.Error())
+		return
+	}
+	st, err := c.Lstat(p)
+	if err != nil {
+		s.fileErr(w, err)
+		return
+	}
+	if st.IsDir() {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "这是目录，只能删文件")
+		return
+	}
+	if err := c.Remove(p); err != nil {
+		s.fileErr(w, err)
+		return
+	}
+	log.Printf("实例 %d 删除 %s（%d 字节）", id, p, st.Size())
+	writeJSON(w, map[string]any{"path": p, "size": st.Size()})
 }
 
 func (s *Server) readText(w http.ResponseWriter, r *http.Request) {
