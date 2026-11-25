@@ -39,7 +39,7 @@ vastmon polls the offers every two minutes, applies your filters, and ranks mach
 
 **Web terminal and files**
 - Tabbed terminal (xterm.js) showing the panel-to-instance SSH latency, with a one-click clear; the shells are kept by the panel, so reloading the page, a network drop or another browser brings you back to the same shell with whatever was running in it — only closing a tab ends it
-- File browser: upload, download, delete files, edit text files in the browser, preview images and videos, with a folder tree underneath for jumping between directories
+- File browser: upload, download, delete files, change permissions, preview images and videos; double-click a text file to edit it in a popup, and files you opened stay on tabs to come back to; it has a folder tree and can sit beside the terminal or under it (tree on the left, files on the right, as in FinalShell), or be folded away
 - System monitor: a column next to the terminal with uptime, load, CPU / memory / swap, the busiest processes, network speed and SSH latency charts, and disk space (CPU and memory are measured against the container's quota, not the whole host); the *GPU 监控* switch at the bottom adds what nvtop shows — per-card usage, memory, temperature, power, fan, a chart and the processes on the card
 
 **Startup downloader**
@@ -77,7 +77,7 @@ vastmon polls the offers every two minutes, applies your filters, and ranks mach
   <img src="docs/images/bench.png" alt="Benchmark report" width="55%">
 </p>
 
-**Web terminal and files** — tabbed terminals next to a file browser that uploads, downloads, deletes files, edits text and previews images and videos.
+**Web terminal and files** — tabbed terminals next to a file browser that uploads, downloads, deletes files, changes permissions, edits text and previews images and videos.
 
 ![Web terminal](docs/images/terminal.png)
 

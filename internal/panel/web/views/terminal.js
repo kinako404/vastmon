@@ -15,11 +15,50 @@ import { createSysMonitor } from '../lib/sysmon.js';
 // holds them, and the view only re-attaches the root element. Each tab is
 // one instance: a system monitor column on the left (监控 in the status bar
 // hides it), an xterm.js shell over a WebSocket in the middle and a file
-// browser on the right.
+// browser on the right or, with 侧边 / 底部 in the status bar, underneath;
+// 文件 folds the file browser away.
 
 // MON_KEY is the localStorage key remembering that the monitor is hidden.
 const MON_KEY = 'vastmon.sysmon';
 const monHidden = () => localStorage.getItem(MON_KEY) === '0';
+
+// LAYOUT_KEY is the localStorage key for where the file browser sits: shown
+// or folded away, beside the terminal or under it (as in FinalShell), and
+// the terminal's share of the space in each arrangement.
+const LAYOUT_KEY = 'vastmon.termLayout';
+const layout = (() => {
+  let p = null;
+  try {
+    p = JSON.parse(localStorage.getItem(LAYOUT_KEY));
+  } catch {
+    p = null;
+  }
+  const frac = (v, def, lo, hi) => (Number(v) >= lo && Number(v) <= hi ? Number(v) : def);
+  return { files: !(p && p.files === false), bottom: Boolean(p && p.bottom), side: frac(p && p.side, 0.62, 0.25, 0.85), bot: frac(p && p.bot, 0.55, 0.2, 0.85) };
+})();
+
+// applyLayout arranges tab t by layout.
+function applyLayout(t) {
+  t.main.classList.toggle('bottom', layout.bottom);
+  t.main.classList.toggle('nofiles', !layout.files);
+  t.shellPane.style.flexBasis = `${(layout.bottom ? layout.bot : layout.side) * 100}%`;
+  const arrow = layout.bottom ? (layout.files ? '▾' : '▴') : (layout.files ? '▸' : '◂');
+  t.filesBtn.textContent = `文件 ${arrow}`;
+  t.filesBtn.classList.toggle('on', layout.files);
+  t.filesBtn.title = layout.files ? '收起文件管理器，把地方让给终端' : '展开文件管理器';
+  t.sideBtn.textContent = layout.bottom ? '底部 ⇄' : '侧边 ⇄';
+  t.sideBtn.title = layout.bottom
+    ? '文件管理器现在在终端下面（左边目录树、右边文件），点一下放回右侧'
+    : '文件管理器现在在终端右侧，点一下放到终端下面（左边目录树、右边文件，像 FinalShell）';
+}
+
+// setLayout changes the arrangement of every tab and remembers it.
+function setLayout(change) {
+  Object.assign(layout, change);
+  localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
+  for (const t of tabs) applyLayout(t);
+  if (active) requestAnimationFrame(() => fitTab(active));
+}
 
 // toggleMonitors shows or hides the monitor column in every tab.
 function toggleMonitors() {
@@ -114,6 +153,9 @@ function fitTab(t) {
 
 function closeTab(t) {
   if (t.sessionId && !window.confirm(`关闭 ${t.title} 的终端？正在跑的前台命令会被中断。`)) return;
+  const unsaved = t.files.unsaved();
+  if (unsaved && !window.confirm(`这个窗口里有 ${unsaved} 个打开的文档没保存，关闭会丢掉修改，继续？`)) return;
+  t.files.dispose();
   t.closing = true;
   // ending the session is what stops the shell; dropping the socket alone
   // would leave it running on the server
@@ -265,6 +307,9 @@ async function openTab(x, sessionId = '') {
   const files = createFileBrowser(x.id, {
     onCd: (dir) => typeCommand(t, `cd ${shellQuote(dir)}\r`),
   });
+  t.files = files;
+  t.filesBtn = h('button', { type: 'button', class: 'term-clear term-mon-toggle', onclick: () => setLayout({ files: !layout.files }) });
+  t.sideBtn = h('button', { type: 'button', class: 'term-clear', onclick: () => setLayout({ bottom: !layout.bottom, files: true }) });
   const clearBtn = h('button', {
     type: 'button', class: 'term-clear',
     title: '清掉终端里的内容和残留的显示状态（比如断线后 nvtop、htop 的残影）；连着时让 shell 重新显示提示符',
@@ -277,26 +322,32 @@ async function openTab(x, sessionId = '') {
     title: '显示 / 隐藏左边的系统监控（CPU、内存、进程、网速、延迟、磁盘）',
     onclick: toggleMonitors,
   }, '监控');
-  const shellPane = h('div', { class: 'term-shell' }, shellBox, h('div', { class: 'term-bar' }, t.status, t.monBtn, clearBtn));
-  const splitter = h('div', { class: 'term-splitter', title: '拖动调整宽度' });
+  const shellPane = h('div', { class: 'term-shell' }, shellBox, h('div', { class: 'term-bar' }, t.status, t.filesBtn, t.sideBtn, t.monBtn, clearBtn));
+  const splitter = h('div', { class: 'term-splitter', title: '拖动调整大小' });
   const filePane = h('div', { class: 'term-files' }, files.el);
   const main = h('div', { class: 'term-main' }, shellPane, splitter, filePane);
+  t.main = main;
+  t.shellPane = shellPane;
   t.el = h('div', { class: 'term-pane' }, t.mon.el, main);
+  applyLayout(t);
   splitter.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     splitter.setPointerCapture(e.pointerId);
     const box = main.getBoundingClientRect();
     const move = (ev) => {
-      const frac = Math.min(0.85, Math.max(0.25, (ev.clientX - box.left) / box.width));
-      shellPane.style.flexBasis = `${frac * 100}%`;
+      if (layout.bottom) layout.bot = Math.min(0.85, Math.max(0.2, (ev.clientY - box.top) / box.height));
+      else layout.side = Math.min(0.85, Math.max(0.25, (ev.clientX - box.left) / box.width));
+      shellPane.style.flexBasis = `${(layout.bottom ? layout.bot : layout.side) * 100}%`;
     };
     const up = () => {
       splitter.removeEventListener('pointermove', move);
       splitter.removeEventListener('pointerup', up);
-      fitTab(t);
+      splitter.removeEventListener('pointercancel', up);
+      setLayout({});
     };
     splitter.addEventListener('pointermove', move);
     splitter.addEventListener('pointerup', up);
+    splitter.addEventListener('pointercancel', up);
   });
   tabs.push(t);
   if (body.querySelector('.term-empty')) body.replaceChildren();
@@ -425,6 +476,7 @@ export function closeAllTerminals() {
   for (const t of [...tabs]) {
     t.closing = true;
     t.mon.stop();
+    t.files.dispose();
     if (t.ws) t.ws.close();
     if (t.term) t.term.dispose();
     if (t.ro) t.ro.disconnect();

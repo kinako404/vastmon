@@ -343,7 +343,12 @@ a.button.small { padding: 2px 10px; font-size: 12px; }
 .term-pane { display: flex; height: 100%; min-height: 0; }
 .term-pane[hidden] { display: none !important; }
 .term-main { flex: 1; min-width: 0; min-height: 0; display: flex; }
-.term-shell { flex: 0 0 62%; min-width: 0; display: flex; flex-direction: column; background: #11141a; }
+.term-shell { flex: 0 0 62%; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: #11141a; }
+.term-main.bottom { flex-direction: column; }
+.term-main.bottom > .term-splitter { width: auto; height: 5px; cursor: row-resize; }
+.term-main.bottom > .term-files { min-width: 0; }
+.term-main.nofiles > .term-splitter, .term-main.nofiles > .term-files { display: none; }
+.term-main.nofiles > .term-shell { flex: 1 1 100% !important; }
 .term-xterm { flex: 1; min-height: 0; padding: 4px 0 0 6px; }
 .term-bar { flex: none; display: flex; align-items: center; gap: 8px; border-top: 1px solid #2e343e; padding-right: 6px; }
 .term-status { flex: 1; min-width: 0; padding: 3px 8px; font-size: 12px; color: #9aa3af; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -428,7 +433,42 @@ input.mon-switch:checked::after { transform: translateX(12px); background: var(-
 .fb { position: relative; display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .fb-toolbar { display: flex; gap: 6px; align-items: center; padding: 6px; border-bottom: 1px solid var(--border); flex: none; }
 .fb-path { flex: 1; min-width: 0; font-size: 12px; padding: 2px 6px; }
+.fb-main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.fb-vsplit { display: none; }
+.fb.wide .fb-main { flex-direction: row; }
+.fb.wide .fb-tree-bar { display: none; }
+.fb.wide .fb-tree { order: 1; flex: 0 0 220px; border-top: none; }
+.fb.wide .fb-vsplit { display: block; order: 2; flex: none; width: 5px; cursor: col-resize; background: var(--border); }
+.fb.wide .fb-vsplit:hover { background: var(--accent); }
+.fb.wide .fb-list { order: 3; min-width: 0; }
 .fb-list { flex: 1 1 0; min-height: 72px; overflow: auto; }
+.fb-loading { color: var(--muted); padding: 14px 8px !important; }
+.fb-docs { flex: none; display: flex; gap: 4px; align-items: center; padding: 4px 6px; border-bottom: 1px solid var(--border); overflow-x: auto; }
+.fb-docs[hidden] { display: none; }
+.fb-doc { flex: none; display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 5px; background: var(--code-bg); }
+.fb-doc.on { border-color: var(--accent); }
+.fb-doc button { border: none; background: none; font-size: 12px; padding: 2px 6px; color: var(--text); }
+.fb-doc-name { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.fb-doc-name:hover { color: var(--accent); }
+.fb-doc button.fb-doc-close { padding: 2px 6px 2px 2px; color: var(--muted); }
+.fb-doc button.fb-doc-close:hover { color: var(--danger); }
+dialog.dialog.editor-dialog { width: min(1200px, 96vw); height: 88vh; padding: 12px 14px; }
+dialog.dialog.editor-dialog[open] { display: flex; flex-direction: column; }
+dialog.dialog.editor-dialog > div { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.editor-dialog .title-row { gap: 8px 10px; margin-bottom: 8px; flex: none; }
+.editor-dialog .title-row h2 { margin: 0; font-size: 16px; }
+.editor-dialog .title-row .field { margin: 0; }
+.editor-dialog .title-row input[type=checkbox] { width: 16px; }
+.editor-path { max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editor-dialog .editor-area { width: 100% !important; }
+.perm-path { overflow-wrap: anywhere; margin: 0 0 4px; }
+table.perm-grid { width: auto; margin: 8px 0; }
+.perm-grid th, .perm-grid td { border: none; padding: 3px 14px 3px 0; text-align: center; }
+.perm-grid tbody th { text-align: left; font-size: 13px; color: var(--text); }
+.perm-grid tbody tr:hover { background: none; }
+.perm-line { display: flex; align-items: center; gap: 12px; margin: 6px 0 10px; }
+dialog.dialog input.perm-num { width: 64px; text-align: center; }
+.perm-presets { display: flex; flex-wrap: wrap; gap: 6px; }
 .fb-list table { font-size: 13px; }
 .fb-list th { position: sticky; top: 0; background: var(--panel); z-index: 1; }
 .fb-list td { padding: 3px 8px; }

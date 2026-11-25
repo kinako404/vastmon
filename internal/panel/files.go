@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -30,6 +31,7 @@ type fileEntry struct {
 	Size   int64  `json:"size"`
 	Mtime  int64  `json:"mtime"`
 	Mode   string `json:"mode"`
+	Perm   uint32 `json:"perm"` // rwx 九位（链接是它指向的文件的，chmod 改的也是那个）
 	Broken bool   `json:"broken,omitempty"`
 }
 
@@ -86,11 +88,11 @@ func (s *Server) listFiles(w http.ResponseWriter, r *http.Request) {
 	onlyDirs := r.URL.Query().Get("dirs") == "1"
 	out := make([]fileEntry, 0, len(infos))
 	for _, fi := range infos {
-		e := fileEntry{Name: fi.Name(), Dir: fi.IsDir(), Size: fi.Size(), Mtime: fi.ModTime().Unix(), Mode: fi.Mode().String()}
+		e := fileEntry{Name: fi.Name(), Dir: fi.IsDir(), Size: fi.Size(), Mtime: fi.ModTime().Unix(), Mode: fi.Mode().String(), Perm: uint32(fi.Mode().Perm())}
 		if fi.Mode()&fs.ModeSymlink != 0 {
 			e.Link = true
 			if t, err := c.Stat(path.Join(dir, fi.Name())); err == nil {
-				e.Dir, e.Size = t.IsDir(), t.Size()
+				e.Dir, e.Size, e.Perm = t.IsDir(), t.Size(), uint32(t.Mode().Perm())
 			} else {
 				e.Broken = true
 			}
@@ -291,6 +293,53 @@ func (s *Server) deleteFile(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("实例 %d 删除 %s（%d 字节）", id, p, st.Size())
 	writeJSON(w, map[string]any{"path": p, "size": st.Size()})
+}
+
+// chmodFile 改文件或目录的权限（不递归）。mode 是 3 位八进制（644、755）；
+// setuid / setgid / sticky 这几位保持原样。
+func (s *Server) chmodFile(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Path string `json:"path"`
+		Mode string `json:"mode"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	p, err := cleanRemote(body.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+		return
+	}
+	n, err := strconv.ParseUint(body.Mode, 8, 32)
+	if err != nil || len(body.Mode) < 3 || len(body.Mode) > 4 || n > 0o777 {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "权限要写成 3 位八进制，比如 644、755")
+		return
+	}
+	c, err := s.sftpClient(id)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "SSH", err.Error())
+		return
+	}
+	st, err := c.Stat(p)
+	if err != nil {
+		s.fileErr(w, err)
+		return
+	}
+	mode := st.Mode()&(fs.ModeSetuid|fs.ModeSetgid|fs.ModeSticky) | fs.FileMode(n)
+	if err := c.Chmod(p, mode); err != nil {
+		s.fileErr(w, err)
+		return
+	}
+	if st, err = c.Stat(p); err != nil {
+		s.fileErr(w, err)
+		return
+	}
+	log.Printf("实例 %d 改权限 %s → %s", id, p, st.Mode())
+	writeJSON(w, map[string]any{"path": p, "mode": st.Mode().String(), "perm": uint32(st.Mode().Perm())})
 }
 
 func (s *Server) readText(w http.ResponseWriter, r *http.Request) {
