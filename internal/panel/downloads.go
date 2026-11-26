@@ -182,6 +182,7 @@ func normalizeURL(raw string) (string, string, error) {
 	case host == "huggingface.co" || strings.HasSuffix(host, ".huggingface.co") || host == "hf.co":
 		u.Path = strings.Replace(u.Path, "/blob/", "/resolve/", 1)
 	case isCivitai(host):
+		u.Host = "civitai.com"
 		q := u.Query()
 		token = q.Get("token")
 		q.Del("token")
@@ -196,9 +197,15 @@ func normalizeURL(raw string) (string, string, error) {
 	return u.String(), token, nil
 }
 
+// isCivitai 认 Civitai 的几个站点：civitai.com、成人内容的 civitai.red、
+// 全年龄的 civitai.green（同一套模型和 token，normalizeURL 统一换成 civitai.com）。
 func isCivitai(host string) bool {
-	host = strings.ToLower(host)
-	return host == "civitai.com" || strings.HasSuffix(host, ".civitai.com")
+	host = strings.TrimPrefix(strings.ToLower(host), "www.")
+	switch host {
+	case "civitai.com", "civitai.red", "civitai.green":
+		return true
+	}
+	return false
 }
 
 func isHF(host string) bool {
@@ -428,6 +435,9 @@ func resolveDL(ctx context.Context, raw string, c dlConfig) (dlResolved, error) 
 		return dlResolved{}, errors.New("文件不存在（HTTP 404）")
 	case resp.StatusCode != 200 && resp.StatusCode != 206:
 		return dlResolved{}, fmt.Errorf("链接返回 HTTP %d", resp.StatusCode)
+	}
+	if ct := strings.ToLower(resp.Header.Get("Content-Type")); strings.HasPrefix(ct, "text/html") {
+		return dlResolved{}, errors.New("链接打开的是网页，不是文件：换成文件的下载链接（Civitai 用带 modelVersionId 的模型页或 /api/download/models/ 链接）")
 	}
 	final := resp.Request.URL
 	res := dlResolved{URL: final.String(), Size: -1, Host: final.Hostname(), Redirect: final.Host != u.Host}
