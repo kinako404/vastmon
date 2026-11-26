@@ -39,6 +39,7 @@ vastmon polls the offers every two minutes, applies your filters, and ranks mach
 
 **Web terminal and files**
 - Tabbed terminal (xterm.js) showing the panel-to-instance SSH latency, with a one-click clear; the shells are kept by the panel, so reloading the page, a network drop or another browser brings you back to the same shell with whatever was running in it — only closing a tab ends it
+- Quick commands (*命令* in the terminal's status bar, as in FinalShell): saved commands in categories, one click sends a command to the terminal (or only types it without running it), ⚙ edits, drag to reorder or onto another category; kept on the server so every browser shares them, with a few vast / ComfyUI commands to start with (ComfyUI log, service status, GPU, disk…)
 - File browser: upload, download, delete files, change permissions, preview images and videos; double-click a text file to edit it in a popup, and files you opened stay on tabs to come back to; it has a folder tree and can sit beside the terminal or under it (tree on the left, files on the right, as in FinalShell), or be folded away
 - System monitor: a column next to the terminal with uptime, load, CPU / memory / swap, the busiest processes, network speed and SSH latency charts, and disk space (CPU and memory are measured against the container's quota, not the whole host); the *GPU 监控* switch at the bottom adds what nvtop shows — per-card usage, memory, temperature, power, fan, a chart and the processes on the card
 
@@ -268,7 +269,7 @@ internal/panel/       the panel (Go):
   rent.go instance_*.go renting, instance actions, post-boot setup
   favorites.go blacklist.go         favorites and blacklist
   bench.go bench.py baselines*.go   benchmark and baseline database
-  term.go files.go sshpool.go ssh_settings.go   web terminal, file browser, SSH
+  term.go quickcmds.go files.go sshpool.go ssh_settings.go   web terminal, quick commands, file browser, SSH
   sysmon.go             system monitor on the terminal page
   downloads*.go comfy_input.go input_jobs.go   startup downloader, ComfyUI input sync and backup jobs
   scripts.go            startup scripts, variables, file library

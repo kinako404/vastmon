@@ -4,6 +4,7 @@ import { openDialog } from '../lib/dialog.js';
 import { fmtGeo } from '../lib/geo.js';
 import { createFileBrowser } from '../lib/filebrowser.js';
 import { createSysMonitor } from '../lib/sysmon.js';
+import { createQuickPanel, quickOpen, setQuickOpen, resetQuickCmds } from '../lib/quickcmds.js';
 
 // The shells belong to the panel server, not to this page: reloading the
 // page, losing the network or closing the browser leaves them (and whatever
@@ -16,7 +17,8 @@ import { createSysMonitor } from '../lib/sysmon.js';
 // one instance: a system monitor column on the left (监控 in the status bar
 // hides it), an xterm.js shell over a WebSocket in the middle and a file
 // browser on the right or, with 侧边 / 底部 in the status bar, underneath;
-// 文件 folds the file browser away.
+// 文件 folds the file browser away. 命令 opens the quick commands strip
+// above the status bar (lib/quickcmds.js).
 
 // MON_KEY is the localStorage key remembering that the monitor is hidden.
 const MON_KEY = 'vastmon.sysmon';
@@ -69,6 +71,29 @@ function toggleMonitors() {
     t.monBtn.classList.toggle('on', !hide);
     if (!hide) t.mon.refresh();
   }
+}
+
+// toggleQuick shows or hides the quick commands strip in every tab.
+function toggleQuick() {
+  const open = !quickOpen();
+  setQuickOpen(open);
+  for (const t of tabs) {
+    t.quick.el.hidden = !open;
+    t.cmdBtn.classList.toggle('on', open);
+  }
+  if (open && active) active.quick.render();
+  if (active) requestAnimationFrame(() => fitTab(active));
+}
+
+// runQuick pastes a quick command into tab t's shell (bracketed when the
+// shell asked for it, so a multi-line command arrives as one paste) and
+// presses Enter if the command says so.
+function runQuick(t, c) {
+  if (!t.term || !t.ws || t.ws.readyState !== WebSocket.OPEN) return false;
+  t.term.paste(c.cmd);
+  if (c.enter) t.ws.send(new TextEncoder().encode('\r'));
+  t.term.focus();
+  return true;
 }
 
 let xtermMods = null;
@@ -156,6 +181,7 @@ function closeTab(t) {
   const unsaved = t.files.unsaved();
   if (unsaved && !window.confirm(`这个窗口里有 ${unsaved} 个打开的文档没保存，关闭会丢掉修改，继续？`)) return;
   t.files.dispose();
+  t.quick.dispose();
   t.closing = true;
   // ending the session is what stops the shell; dropping the socket alone
   // would leave it running on the server
@@ -322,7 +348,15 @@ async function openTab(x, sessionId = '') {
     title: '显示 / 隐藏左边的系统监控（CPU、内存、进程、网速、延迟、磁盘）',
     onclick: toggleMonitors,
   }, '监控');
-  const shellPane = h('div', { class: 'term-shell' }, shellBox, h('div', { class: 'term-bar' }, t.status, t.filesBtn, t.sideBtn, t.monBtn, clearBtn));
+  t.quick = createQuickPanel((c) => runQuick(t, c));
+  t.quick.el.hidden = !quickOpen();
+  t.cmdBtn = h('button', {
+    type: 'button', class: 'term-clear qc-toggle' + (quickOpen() ? ' on' : ''),
+    title: '显示 / 隐藏快捷命令（点一下发到终端，可分类、编辑、拖动排序）',
+    onclick: toggleQuick,
+  }, '命令');
+  const shellPane = h('div', { class: 'term-shell' }, shellBox, t.quick.el,
+    h('div', { class: 'term-bar' }, t.status, t.cmdBtn, t.filesBtn, t.sideBtn, t.monBtn, clearBtn));
   const splitter = h('div', { class: 'term-splitter', title: '拖动调整大小' });
   const filePane = h('div', { class: 'term-files' }, files.el);
   const main = h('div', { class: 'term-main' }, shellPane, splitter, filePane);
@@ -354,6 +388,7 @@ async function openTab(x, sessionId = '') {
   body.appendChild(t.el);
   activate(t);
   t.mon.refresh();
+  t.quick.render();
   mount(t.status, loading());
   const [{ Terminal }, { FitAddon }] = await loadXterm();
   if (t.closing) return;
@@ -477,10 +512,12 @@ export function closeAllTerminals() {
     t.closing = true;
     t.mon.stop();
     t.files.dispose();
+    t.quick.dispose();
     if (t.ws) t.ws.close();
     if (t.term) t.term.dispose();
     if (t.ro) t.ro.disconnect();
   }
+  resetQuickCmds();
   tabs.length = 0;
   active = null;
   root = null;

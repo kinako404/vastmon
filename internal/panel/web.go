@@ -107,6 +107,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/term/sessions", s.auth.require(s.termSessions))
 	mux.HandleFunc("DELETE /api/term/sessions/{sid}", s.auth.require(s.termClose))
 	mux.HandleFunc("GET /api/term/{id}/check", s.auth.require(s.termCheck))
+	mux.HandleFunc("GET /api/quickcmds", s.auth.require(s.quickCmdsGet))
+	mux.HandleFunc("PUT /api/quickcmds", s.auth.require(s.quickCmdsPut))
 	mux.HandleFunc("GET /api/files/{id}/list", s.auth.require(s.listFiles))
 	mux.HandleFunc("GET /api/files/{id}/raw", s.auth.require(s.rawFile))
 	mux.HandleFunc("POST /api/files/{id}/upload", s.auth.require(s.uploadFiles))

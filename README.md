@@ -39,6 +39,7 @@ vastmon 每隔两分钟抓一次报价，按你的条件过滤，并把「单价
 
 **网页终端与文件**
 - 多标签终端（xterm.js），显示面板到实例的 SSH 延迟，一键清屏；终端会话由面板保持：刷新页面、断网、换浏览器都能接回同一个 shell，里面跑着的程序不受影响，关掉标签才结束
+- 快捷命令（底栏「命令」，像 FinalShell）：按分类存常用命令，点一下发到终端（可选只填进命令行不执行），⚙ 编辑，拖动排序或拖到别的分类；存在服务器上，所有浏览器共用，自带几条 vast / ComfyUI 常用命令（看 ComfyUI 日志、服务状态、显卡、磁盘等）
 - 文件浏览器：上传、下载、删除文件、改权限、预览图片和视频；双击文本文件在弹窗里编辑，打开过的文档留在标签上随时切回；带目录树，可以放在终端右侧或下方（FinalShell 那样左树右文件），也可以收起
 - 系统监控：终端左边一栏，显示运行时间、负载、CPU / 内存 / 交换、占用最高的进程、网速和 SSH 延迟曲线、磁盘空间（CPU 和内存按容器配额算，不是整台宿主机）；底部的「GPU 监控」开关再加上 nvtop 里的那些：每张卡的占用、显存、温度、功耗、风扇、曲线和卡上的进程
 
@@ -268,7 +269,7 @@ internal/panel/       面板本体（Go）：
   rent.go instance_*.go 开机、实例操作、开机后的设置
   favorites.go blacklist.go         收藏、黑名单
   bench.go bench.py baselines*.go   算力检测与性能基准库
-  term.go files.go sshpool.go ssh_settings.go   网页终端、文件浏览、SSH
+  term.go quickcmds.go files.go sshpool.go ssh_settings.go   网页终端、快捷命令、文件浏览、SSH
   sysmon.go             终端页的系统监控
   downloads*.go comfy_input.go input_jobs.go   启动下载器、ComfyUI input 同步与备份任务
   scripts.go            开机脚本、变量、文件库
