@@ -150,6 +150,10 @@ pre.code {
 .badge.on { color: var(--ok); border-color: var(--ok); }
 .badge.warn { color: var(--warn); border-color: var(--warn); }
 .badge.bad { color: var(--danger); border-color: var(--danger); }
+.badge.best { color: var(--accent); border-color: var(--accent); margin-left: 3px; }
+.best-head { margin: -4px 0 6px; }
+.stat.best { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.stat.best .v { font-size: 20px; }
 
 .cost-ok { color: var(--ok); }
 .cost-warn { color: var(--warn); font-weight: 600; }

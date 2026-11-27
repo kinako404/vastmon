@@ -48,8 +48,9 @@ type Offer struct {
 	Duration     float64 `json:"duration"`
 	Geo          string  `json:"geolocation"`
 	Verification string  `json:"verification"`
-	DLPerf       float64 `json:"dlperf"`      // vast 的通用深度学习基准分（估算的参考值，不是实测）
-	TFLOPS       float64 `json:"total_flops"` // vast 标的整机 TFLOPS
+	DLPerf       float64 `json:"dlperf"`        // vast 的通用深度学习基准分（估算的参考值，不是实测）
+	TFLOPS       float64 `json:"total_flops"`   // vast 标的整机 TFLOPS
+	PowerW       float64 `json:"gpu_max_power"` // 单卡功耗上限（W），和卡上 nvidia-smi 的生效上限一致
 	Raw          string  `json:"-"`
 }
 

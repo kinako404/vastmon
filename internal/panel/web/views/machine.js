@@ -68,6 +68,7 @@ export async function machineView(ctx) {
           ['算力（vast 参考值）', m.dlperf
             ? `DLPerf ${fixed(m.dlperf, 1)}（${fixed(m.dph_total ? m.dlperf / m.dph_total : 0, 1)} DLP/$/h）· ${fixed(m.total_flops, 1)} TFLOPS`
             : '—'],
+          ['功耗上限', m.gpu_max_power ? `${fixed(m.gpu_max_power, 0)}W / 卡（vast 报的，和卡上 nvidia-smi 的生效上限一致）` : '—'],
           ['磁盘', `${fixed(m.disk_space, 0)} GB，${fixed(m.disk_bw, 0)} MB/s`],
           ['可靠性 / CUDA / 端口', `${fixed(m.reliability, 3)} / ${fixed(m.cuda_max_good, 1)} / ${m.direct_port_count}`],
           ['可租天数', days(m.duration)],

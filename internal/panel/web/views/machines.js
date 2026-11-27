@@ -55,6 +55,93 @@ function renderStats(st) {
     stat('最低单价', cheapest ? '$' + fixed(cheapest.dph_total, 3) + '/h' : '—', cheapest ? `机器 ${cheapest.machine_id}` : ''));
 }
 
+const median = (xs) => {
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+};
+
+// bestPicks compares the online rows measure by measure: for each, the best
+// machine (ties go to the lower $/day) against the median of all of them.
+// Every figure is one the table already shows or a plain ratio of two.
+function bestPicks(st) {
+  const rows = st.rows.filter((r) => r.online);
+  if (rows.length < 2) return [];
+  const f = st.filter;
+  const perDay = f.exp_down_gb > 0 || f.exp_up_gb > 0;
+  const traffic = perDay
+    ? (r) => (f.exp_down_gb * r.internet_down_cost_per_tb + f.exp_up_gb * r.internet_up_cost_per_tb) / 1024
+    : (r) => r.internet_down_cost_per_tb + r.internet_up_cost_per_tb;
+  const watts = (r) => (r.gpu_max_power || 0) * r.num_gpus;
+  const measures = [
+    {
+      title: '最低日费', badge: '日费最低', low: true, cmp: 'less',
+      tip: '估算 $/天最低：单价 × 24 + 每天预计流量的费用',
+      score: (r) => r.est_day, fmt: (v) => `$${fixed(v, 2)}/天`,
+      value: (r) => `$${fixed(r.est_day, 2)}/天`, detail: (r) => `$${fixed(r.dph_total, 3)}/h`,
+    },
+    {
+      title: '每 $ 下载最快', badge: '下载/$ 最高', cmp: 'times',
+      tip: '下行带宽 ÷ $/h：同样的钱下载最快，开机拉模型最省时间',
+      score: (r) => (r.dph_total > 0 ? r.inet_down / r.dph_total : NaN), fmt: (v) => `${fixed(v, 0)} Mbps/$`,
+      value: (r) => `${fixed(r.inet_down, 0)} Mbps`, detail: (r) => `$${fixed(r.dph_total, 3)}/h`,
+    },
+    {
+      title: '流量最便宜', badge: '流量最便宜', low: true, cmp: 'less',
+      tip: perDay ? `按过滤条件里每天下行 ${f.exp_down_gb} GB、上行 ${f.exp_up_gb} GB 算的每天流量费` : '下行 + 上行流量费（$/TB）',
+      score: traffic, fmt: (v) => (perDay ? `$${fixed(v, 2)}/天` : `$${fixed(v, 1)}/TB`),
+      value: (r) => (perDay ? `$${fixed(traffic(r), 2)}/天` : `$${fixed(traffic(r), 1)}/TB`),
+      detail: (r) => `↓$${fixed(r.internet_down_cost_per_tb, 1)} ↑$${fixed(r.internet_up_cost_per_tb, 1)} /TB`,
+    },
+    {
+      title: '最稳定', badge: '最稳定', cmp: 'plain',
+      tip: 'vast 给的可靠性最高（主机历史在线率）',
+      score: (r) => r.reliability, fmt: (v) => fixed(v, 3),
+      value: (r) => fixed(r.reliability, 3), detail: (r) => `$${fixed(r.dph_total, 3)}/h`,
+    },
+    {
+      title: '每 $ 功耗最高', badge: '功耗/$ 最高', cmp: 'times',
+      tip: '功耗上限 × 卡数 ÷ $/h。同型号的卡算力随功耗上限走（被限到 400W 的卡长时间满载明显慢），功耗上限是 vast 报的，和卡上 nvidia-smi 一致',
+      score: (r) => (watts(r) > 0 && r.dph_total > 0 ? watts(r) / r.dph_total : NaN), fmt: (v) => `${fixed(v, 0)} W/$`,
+      value: (r) => `${fixed(watts(r), 0)}W`, detail: (r) => `$${fixed(r.dph_total, 3)}/h`,
+    },
+  ];
+  const picks = [];
+  for (const m of measures) {
+    const scored = rows.map((r) => ({ r, v: m.score(r) })).filter((x) => Number.isFinite(x.v));
+    if (scored.length < 2) continue;
+    const best = m.low ? Math.min(...scored.map((x) => x.v)) : Math.max(...scored.map((x) => x.v));
+    const tied = scored.filter((x) => Math.abs(x.v - best) <= 1e-9 * Math.max(1, Math.abs(best)))
+      .sort((a, b) => a.r.est_day - b.r.est_day || a.r.dph_total - b.r.dph_total);
+    picks.push({ ...m, row: tied[0].r, best, ties: tied.length - 1, med: median(scored.map((x) => x.v)), n: scored.length });
+  }
+  return picks;
+}
+
+function compareText(p) {
+  const med = `中位数 ${p.fmt(p.med)}`;
+  if (p.cmp === 'less' && p.med > 0) {
+    const pct = Math.round((1 - p.best / p.med) * 100);
+    return pct > 0 ? `${med}，低 ${pct}%` : med;
+  }
+  if (p.cmp === 'times' && p.med > 0) return `${p.fmt(p.best)}，是中位数的 ${fixed(p.best / p.med, 1)} 倍（${p.fmt(p.med)}）`;
+  return med;
+}
+
+function renderBest(picks, online) {
+  if (!picks.length) return null;
+  return [
+    h('div', { class: 'best-head' }, h('span', { class: 'strong' }, '各项最佳'),
+      h('span', { class: 'hint' }, ` 在符合条件的 ${online} 台在线机器里逐项比，和中位数对比；并列时取估算日费低的`)),
+    h('div', { class: 'cards' }, picks.map((p) => h('div', { class: 'stat best', title: p.tip },
+      h('div', { class: 'k' }, p.title),
+      h('div', { class: 'v' }, p.value(p.row)),
+      h('div', { class: 'sub' }, h('a', { href: `#/machines/${p.row.machine_id}/${p.row.num_gpus}` }, `机器 ${p.row.machine_id}`),
+        ` · ${p.detail(p.row)}`),
+      h('div', { class: 'sub' }, compareText(p), p.ties ? ` · 另有 ${p.ties} 台并列` : '')))),
+  ];
+}
+
 function costCell(v) {
   return h('span', { class: costClass(v) }, fixed(v, 1));
 }
@@ -68,7 +155,9 @@ function gpuPerf(r) {
     '都是 vast 的估算参考值，不是实测'].filter(Boolean).join('\n');
 }
 
-function columns(disk, rentCol, marks) {
+function columns(disk, rentCol, marks, picks) {
+  const awards = (r) => picks.filter((p) => p.row === r)
+    .map((p) => h('span', { class: 'badge best', title: `${p.title}：${p.value(r)}（${compareText(p)}）` }, p.badge));
   return [
     {
       title: '机器',
@@ -78,6 +167,7 @@ function columns(disk, rentCol, marks) {
         markBadge(marks, r.machine_id),
         r.new ? h('span', { class: 'badge on' }, '新') : null,
         r.online ? null : h('span', { class: 'badge' }, '下架'),
+        awards(r),
       ],
     },
     rentCol,
@@ -181,7 +271,8 @@ export async function machinesView(ctx) {
   }
 
   function renderTable() {
-    mount(stats, renderStats(st));
+    const picks = bestPicks(st);
+    mount(stats, renderStats(st), renderBest(picks, st.rows.filter((r) => r.online).length));
     const marks = marksFrom(st);
     const rentCol = currentSession().logged_in ? {
       title: '',
@@ -190,7 +281,7 @@ export async function machinesView(ctx) {
       }, '开机') : null),
     } : null;
     mount(firstToggle, showFirst ? '收起“首次出现”列' : '展开“首次出现”列');
-    const cols = columns(st.disk, rentCol, marks).filter((c) => c && (showFirst || !c.optional)).map((c) => ({ ...c, head: sortHead(c) }));
+    const cols = columns(st.disk, rentCol, marks, picks).filter((c) => c && (showFirst || !c.optional)).map((c) => ({ ...c, head: sortHead(c) }));
     mount(tableBox, st.rows.length
       ? table(cols, st.rows, (r) => [r.online ? '' : 'gone', markKind(marks, r.machine_id) ? 'row-' + markKind(marks, r.machine_id) : ''].join(' ').trim() || null)
       : empty('没有符合条件的机器'));
@@ -380,6 +471,7 @@ export async function machinesView(ctx) {
     h('p', { class: 'hint' },
       '$/h 已含磁盘费（按 ' + st.disk + ' GB 计）。估算 $/天 = 单价 × 24 + 每天下行 GB × 下行流量费 + 每天上行 GB × 上行流量费（$/TB 按 1024 GB 折算）。',
       '鼠标停在 GPU 名上可以看 vast 给的算力参考值（DLPerf、TFLOPS、DLP/$/h），不是实测。',
+      '“各项最佳”只比在线、符合条件的机器，每项单独比，不合成总分；鼠标停在卡片上有算法说明。',
       '流量费颜色：', h('span', { class: 'cost-ok' }, '< 8'), ' / ', h('span', { class: 'cost-warn' }, '8–20'), ' / ',
       h('span', { class: 'cost-bad' }, '≥ 20'), ' $/TB。', `每 ${POLL_MS / 1000} 秒自动刷新列表。`));
 
