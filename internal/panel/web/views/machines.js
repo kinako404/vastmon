@@ -75,32 +75,32 @@ function bestPicks(st) {
   const watts = (r) => (r.gpu_max_power || 0) * r.num_gpus;
   const measures = [
     {
-      title: '最低日费', badge: '日费最低', low: true, cmp: 'less',
+      title: '最低日费', low: true, cmp: 'less',
       tip: '估算 $/天最低：单价 × 24 + 每天预计流量的费用',
       score: (r) => r.est_day, fmt: (v) => `$${fixed(v, 2)}/天`,
       value: (r) => `$${fixed(r.est_day, 2)}/天`, detail: (r) => `$${fixed(r.dph_total, 3)}/h`,
     },
     {
-      title: '每 $ 下载最快', badge: '下载/$ 最高', cmp: 'times',
+      title: '每 $ 下载最快', cmp: 'times',
       tip: '下行带宽 ÷ $/h：同样的钱下载最快，开机拉模型最省时间',
       score: (r) => (r.dph_total > 0 ? r.inet_down / r.dph_total : NaN), fmt: (v) => `${fixed(v, 0)} Mbps/$`,
       value: (r) => `${fixed(r.inet_down, 0)} Mbps`, detail: (r) => `$${fixed(r.dph_total, 3)}/h`,
     },
     {
-      title: '流量最便宜', badge: '流量最便宜', low: true, cmp: 'less',
+      title: '流量最便宜', low: true, cmp: 'less',
       tip: perDay ? `按过滤条件里每天下行 ${f.exp_down_gb} GB、上行 ${f.exp_up_gb} GB 算的每天流量费` : '下行 + 上行流量费（$/TB）',
       score: traffic, fmt: (v) => (perDay ? `$${fixed(v, 2)}/天` : `$${fixed(v, 1)}/TB`),
       value: (r) => (perDay ? `$${fixed(traffic(r), 2)}/天` : `$${fixed(traffic(r), 1)}/TB`),
       detail: (r) => `↓$${fixed(r.internet_down_cost_per_tb, 1)} ↑$${fixed(r.internet_up_cost_per_tb, 1)} /TB`,
     },
     {
-      title: '最稳定', badge: '最稳定', cmp: 'plain',
+      title: '最稳定', cmp: 'plain',
       tip: 'vast 给的可靠性最高（主机历史在线率）',
       score: (r) => r.reliability, fmt: (v) => fixed(v, 3),
       value: (r) => fixed(r.reliability, 3), detail: (r) => `$${fixed(r.dph_total, 3)}/h`,
     },
     {
-      title: '每 $ 功耗最高', badge: '功耗/$ 最高', cmp: 'times',
+      title: '每 $ 功耗最高', cmp: 'times',
       tip: '功耗上限 × 卡数 ÷ $/h。同型号的卡长时间满载的算力随功耗上限走（RTX PRO 6000 实测持续 FP16：600W 约 345–358、550W 约 330、400W 约 283 TFLOPS），功耗上限是 vast 报的，和卡上 nvidia-smi 一致',
       score: (r) => (watts(r) > 0 && r.dph_total > 0 ? watts(r) / r.dph_total : NaN), fmt: (v) => `${fixed(v, 0)} W/$`,
       value: (r) => `${fixed(watts(r), 0)}W`, detail: (r) => `$${fixed(r.dph_total, 3)}/h`,
@@ -155,9 +155,7 @@ function gpuPerf(r) {
     '都是 vast 的估算参考值，不是实测'].filter(Boolean).join('\n');
 }
 
-function columns(f, disk, rentCol, marks, picks) {
-  const awards = (r) => picks.filter((p) => p.row === r)
-    .map((p) => h('span', { class: 'badge best', title: `${p.title}：${p.value(r)}（${compareText(p)}）` }, p.badge));
+function columns(f, disk, rentCol, marks) {
   return [
     {
       title: '机器',
@@ -167,7 +165,6 @@ function columns(f, disk, rentCol, marks, picks) {
         markBadge(marks, r.machine_id),
         r.new ? h('span', { class: 'badge on' }, '新') : null,
         r.online ? null : h('span', { class: 'badge' }, '下架'),
-        awards(r),
       ],
     },
     rentCol,
@@ -278,8 +275,7 @@ export async function machinesView(ctx) {
   }
 
   function renderTable() {
-    const picks = bestPicks(st);
-    mount(stats, renderStats(st), renderBest(picks, st.rows.filter((r) => r.online).length));
+    mount(stats, renderStats(st), renderBest(bestPicks(st), st.rows.filter((r) => r.online).length));
     const marks = marksFrom(st);
     const rentCol = currentSession().logged_in ? {
       title: '',
@@ -288,7 +284,7 @@ export async function machinesView(ctx) {
       }, '开机') : null),
     } : null;
     mount(firstToggle, showFirst ? '收起“首次出现”列' : '展开“首次出现”列');
-    const cols = columns(st.filter, st.disk, rentCol, marks, picks).filter((c) => c && (showFirst || !c.optional)).map((c) => ({ ...c, head: sortHead(c) }));
+    const cols = columns(st.filter, st.disk, rentCol, marks).filter((c) => c && (showFirst || !c.optional)).map((c) => ({ ...c, head: sortHead(c) }));
     mount(tableBox, st.rows.length
       ? table(cols, st.rows, (r) => [r.online ? '' : 'gone', markKind(marks, r.machine_id) ? 'row-' + markKind(marks, r.machine_id) : ''].join(' ').trim() || null)
       : empty('没有符合条件的机器'));
