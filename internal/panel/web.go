@@ -195,10 +195,12 @@ func (s *Server) buildState() (state, error) {
 		return state{}, err
 	}
 	online := 0
-	for _, r := range rows {
+	mine := s.myMachines()
+	for i, r := range rows {
 		if r.Online && (len(f.GPUs) == 0 || f.Has(r.GPUName)) {
 			online++
 		}
+		rows[i].Mine = r.Rented && mine[r.MachineID]
 	}
 	poll, err := s.st.LastPoll()
 	if err != nil {
@@ -256,7 +258,7 @@ func (s *Server) saveFilter(w http.ResponseWriter, f Filter) {
 		s.fail(w, err)
 		return
 	}
-	if !slices.Equal(before.GPUs, f.GPUs) {
+	if !slices.Equal(before.GPUs, f.GPUs) || before.NumGPUs != f.NumGPUs {
 		s.mon.Poke()
 	}
 	s.writeState(w)
@@ -324,6 +326,7 @@ func (s *Server) machine(w http.ResponseWriter, r *http.Request) {
 	}
 	f := loadFilter(s.st)
 	row.EstDay = f.EstDay(row.Offer)
+	row.Mine = row.Rented && s.myMachines()[row.MachineID]
 	var raw any
 	if err := json.Unmarshal([]byte(row.Raw), &raw); err != nil {
 		raw = nil

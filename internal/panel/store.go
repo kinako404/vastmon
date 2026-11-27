@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS machines (
 	dph REAL, min_bid REAL, inet_down REAL, inet_up REAL, down_tb REAL, up_tb REAL,
 	cpu_name TEXT, cpu_total REAL, cpu_cores REAL, storage_cost REAL, storage_hour REAL, cpu_ram REAL, disk REAL, disk_bw REAL, reliability REAL, cuda REAL,
 	ports INTEGER, duration REAL, geo TEXT, verification TEXT, dlperf REAL, flops REAL, power REAL,
-	first_seen INTEGER, last_seen INTEGER, raw TEXT,
+	first_seen INTEGER, last_seen INTEGER, raw TEXT, rented_seen INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (machine_id, num_gpus)
 );
 CREATE TABLE IF NOT EXISTS history (
@@ -50,13 +50,25 @@ type Store struct {
 	grace int64
 }
 
+// Row 的状态：Online = 宽限期内出现过能租的报价；Rented = 宽限期内没有能租的、
+// 但看到过被人租着的；两个都不是 = 下架（主机撤了报价，或者很久没出现）。
+// 能租优先：多卡机器每张卡一个单卡报价，租掉一张时同一台既有能租的也有被租的；
+// vast 每次搜索又只随机给一部分报价，所以只要宽限期内见过能租的就算在线。
 type Row struct {
 	Offer
-	FirstSeen int64   `json:"first_seen"`
-	LastSeen  int64   `json:"last_seen"`
-	Online    bool    `json:"online"`
-	New       bool    `json:"new"`
-	EstDay    float64 `json:"est_day"`
+	FirstSeen  int64   `json:"first_seen"`
+	LastSeen   int64   `json:"last_seen"`
+	RentedSeen int64   `json:"rented_seen"`
+	Online     bool    `json:"online"`
+	Rented     bool    `json:"rented"`
+	Mine       bool    `json:"mine"` // 被租走的是自己的实例
+	New        bool    `json:"new"`
+	EstDay     float64 `json:"est_day"`
+}
+
+func (r *Row) setState(online, rented int64) {
+	r.Online = r.LastSeen >= online
+	r.Rented = !r.Online && r.RentedSeen >= rented
 }
 
 type Poll struct {
@@ -129,6 +141,7 @@ var addedCols = []struct{ name, def, backfill string }{
 	{"dlperf", "REAL NOT NULL DEFAULT 0", "COALESCE(json_extract(raw, '$.dlperf'), 0)"},
 	{"flops", "REAL NOT NULL DEFAULT 0", "COALESCE(json_extract(raw, '$.total_flops'), 0)"},
 	{"power", "REAL NOT NULL DEFAULT 0", "COALESCE(json_extract(raw, '$.gpu_max_power'), 0)"},
+	{"rented_seen", "INTEGER NOT NULL DEFAULT 0", "0"},
 }
 
 func changed(a, b float64) bool { return math.Abs(a-b) > 1e-6 }
@@ -141,12 +154,14 @@ func (s *Store) SaveOffers(ts int64, offers []Offer) error {
 	defer tx.Rollback()
 	for _, o := range offers {
 		var dph, down, up float64
-		err := tx.QueryRow(`SELECT dph, down_tb, up_tb FROM machines WHERE machine_id = ? AND num_gpus = ?`,
-			o.MachineID, o.NumGPUs).Scan(&dph, &down, &up)
+		var last int64
+		err := tx.QueryRow(`SELECT dph, down_tb, up_tb, last_seen FROM machines WHERE machine_id = ? AND num_gpus = ?`,
+			o.MachineID, o.NumGPUs).Scan(&dph, &down, &up, &last)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
-		if err != nil || changed(dph, o.Dph) || changed(down, o.DownTB) || changed(up, o.UpTB) {
+		// last == 0：之前只见过它被租着，这是第一次能租，价格历史从这里开始
+		if err != nil || last == 0 || changed(dph, o.Dph) || changed(down, o.DownTB) || changed(up, o.UpTB) {
 			if _, err := tx.Exec(`INSERT INTO history VALUES (?, ?, ?, ?, ?, ?)`,
 				o.MachineID, o.NumGPUs, ts, o.Dph, o.DownTB, o.UpTB); err != nil {
 				return err
@@ -165,6 +180,45 @@ func (s *Store) SaveOffers(ts int64, offers []Offer) error {
 			o.ID, o.MachineID, o.HostID, o.GPUName, o.NumGPUs, o.GPURam, o.Dph, o.MinBid, o.InetDown, o.InetUp,
 			o.DownTB, o.UpTB, o.CPUName, o.CPUTotal, o.CPUCores, o.StorageCost, o.StorageHour, o.CPURam, o.Disk, o.DiskBW, o.Reliability, o.CUDA, o.Ports, o.Duration,
 			o.Geo, o.Verification, o.DLPerf, o.TFLOPS, o.PowerW, ts, ts, o.Raw)
+		if err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// SaveRented 记下这一轮看到被人租着的报价：没见过的机器新建一行（last_seen = 0，
+// 从来没能租过）；宽限期内还能租的行只记 rented_seen，报价信息保留能租那条的；
+// 其它行连报价信息一起更新。被租着的价格不进价格历史。
+func (s *Store) SaveRented(ts int64, offers []Offer) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, o := range offers {
+		var last int64
+		err := tx.QueryRow(`SELECT last_seen FROM machines WHERE machine_id = ? AND num_gpus = ?`, o.MachineID, o.NumGPUs).Scan(&last)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			_, err = tx.Exec(`INSERT INTO machines (`+offerCols+`, first_seen, last_seen, raw, rented_seen)
+				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				o.ID, o.MachineID, o.HostID, o.GPUName, o.NumGPUs, o.GPURam, o.Dph, o.MinBid, o.InetDown, o.InetUp,
+				o.DownTB, o.UpTB, o.CPUName, o.CPUTotal, o.CPUCores, o.StorageCost, o.StorageHour, o.CPURam, o.Disk, o.DiskBW, o.Reliability, o.CUDA, o.Ports, o.Duration,
+				o.Geo, o.Verification, o.DLPerf, o.TFLOPS, o.PowerW, ts, 0, o.Raw, ts)
+		case err != nil:
+		case last >= ts-s.grace:
+			_, err = tx.Exec(`UPDATE machines SET rented_seen = ? WHERE machine_id = ? AND num_gpus = ?`, ts, o.MachineID, o.NumGPUs)
+		default:
+			_, err = tx.Exec(`UPDATE machines SET id=?, host_id=?, gpu_name=?, gpu_ram=?, dph=?, min_bid=?, inet_down=?, inet_up=?,
+				down_tb=?, up_tb=?, cpu_name=?, cpu_total=?, cpu_cores=?, storage_cost=?, storage_hour=?, cpu_ram=?, disk=?, disk_bw=?,
+				reliability=?, cuda=?, ports=?, duration=?, geo=?, verification=?, dlperf=?, flops=?, power=?, raw=?, rented_seen=?
+				WHERE machine_id = ? AND num_gpus = ?`,
+				o.ID, o.HostID, o.GPUName, o.GPURam, o.Dph, o.MinBid, o.InetDown, o.InetUp,
+				o.DownTB, o.UpTB, o.CPUName, o.CPUTotal, o.CPUCores, o.StorageCost, o.StorageHour, o.CPURam, o.Disk, o.DiskBW,
+				o.Reliability, o.CUDA, o.Ports, o.Duration, o.Geo, o.Verification, o.DLPerf, o.TFLOPS, o.PowerW, o.Raw, ts,
+				o.MachineID, o.NumGPUs)
+		}
 		if err != nil {
 			return err
 		}
@@ -203,13 +257,19 @@ func (s *Store) Polls(limit int) ([]Poll, error) {
 	return out, rs.Err()
 }
 
-func (s *Store) onlineSince() (int64, error) {
+// rentedWindow：多久内看到过被租着就算“被租走”。vast 每次只随机给一部分
+// 被租着的报价（实测 RTX PRO 6000 WS 单卡约 150 台里每次给 30 台左右），
+// 宽限期那 3 轮只能看到一半；租约一般按小时算，放宽到 1 小时差不多都能看到。
+const rentedWindow = 3600
+
+// windows 返回“在线”和“被租走”两个判定的起点（最近一次成功抓取往前推）。
+func (s *Store) windows() (online, rented int64, err error) {
 	var ts sql.NullInt64
-	err := s.db.QueryRow(`SELECT MAX(ts) FROM polls WHERE err = ''`).Scan(&ts)
+	err = s.db.QueryRow(`SELECT MAX(ts) FROM polls WHERE err = ''`).Scan(&ts)
 	if !ts.Valid {
-		return math.MaxInt64, err
+		return math.MaxInt64, math.MaxInt64, err
 	}
-	return ts.Int64 - s.grace, err
+	return ts.Int64 - s.grace, ts.Int64 - max(s.grace, rentedWindow), err
 }
 
 func scanOffer(sc interface{ Scan(...any) error }, o *Offer, extra ...any) error {
@@ -219,11 +279,11 @@ func scanOffer(sc interface{ Scan(...any) error }, o *Offer, extra ...any) error
 }
 
 func (s *Store) Rows() ([]Row, error) {
-	since, err := s.onlineSince()
+	since, rentedSince, err := s.windows()
 	if err != nil {
 		return nil, err
 	}
-	rs, err := s.db.Query(`SELECT ` + offerCols + `, first_seen, last_seen FROM machines`)
+	rs, err := s.db.Query(`SELECT ` + offerCols + `, first_seen, last_seen, rented_seen FROM machines`)
 	if err != nil {
 		return nil, err
 	}
@@ -231,10 +291,10 @@ func (s *Store) Rows() ([]Row, error) {
 	var out []Row
 	for rs.Next() {
 		var r Row
-		if err := scanOffer(rs, &r.Offer, &r.FirstSeen, &r.LastSeen); err != nil {
+		if err := scanOffer(rs, &r.Offer, &r.FirstSeen, &r.LastSeen, &r.RentedSeen); err != nil {
 			return nil, err
 		}
-		r.Online = r.LastSeen >= since
+		r.setState(since, rentedSince)
 		out = append(out, r)
 	}
 	return out, rs.Err()
@@ -242,13 +302,13 @@ func (s *Store) Rows() ([]Row, error) {
 
 func (s *Store) Row(machineID int64, numGPUs int) (Row, error) {
 	var r Row
-	err := scanOffer(s.db.QueryRow(`SELECT `+offerCols+`, first_seen, last_seen, raw FROM machines
-		WHERE machine_id = ? AND num_gpus = ?`, machineID, numGPUs), &r.Offer, &r.FirstSeen, &r.LastSeen, &r.Raw)
+	err := scanOffer(s.db.QueryRow(`SELECT `+offerCols+`, first_seen, last_seen, rented_seen, raw FROM machines
+		WHERE machine_id = ? AND num_gpus = ?`, machineID, numGPUs), &r.Offer, &r.FirstSeen, &r.LastSeen, &r.RentedSeen, &r.Raw)
 	if err != nil {
 		return r, err
 	}
-	since, err := s.onlineSince()
-	r.Online = r.LastSeen >= since
+	since, rentedSince, err := s.windows()
+	r.setState(since, rentedSince)
 	return r, err
 }
 

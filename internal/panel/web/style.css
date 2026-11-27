@@ -118,6 +118,7 @@ th { font-weight: 600; color: var(--muted); font-size: 12px; white-space: nowrap
 th.num { text-align: right; }
 tbody tr:hover { background: var(--code-bg); }
 tr.gone td { opacity: .5; }
+tr.rented td { opacity: .72; }
 th button.sort { border: none; background: none; padding: 0; color: inherit; font: inherit; }
 th button.sort:hover { color: var(--accent); }
 th button.sort.active { color: var(--accent); }

@@ -26,8 +26,10 @@ type Filter struct {
 	ExpDownGB float64  `json:"exp_down_gb"` // 预计每天下行流量
 	ExpUpGB   float64  `json:"exp_up_gb"`   // 预计每天上行流量
 	ShowGone  bool     `json:"show_gone"`
-	Sort      string   `json:"sort"`
-	Desc      bool     `json:"desc"`
+	// ShowRented：也列出眼下被别人租着的机器（看行情、等它空出来）
+	ShowRented bool   `json:"show_rented"`
+	Sort       string `json:"sort"`
+	Desc       bool   `json:"desc"`
 }
 
 // defaultFilter 对应 cloud.vast.ai/create 上用户常用的那组条件。
@@ -61,7 +63,8 @@ func (f Filter) Has(name string) bool {
 func (f Filter) Match(r Row) bool {
 	o := r.Offer
 	switch {
-	case !r.Online && !f.ShowGone,
+	case r.Rented && !f.ShowRented,
+		!r.Online && !r.Rented && !f.ShowGone,
 		len(f.GPUs) > 0 && !f.Has(o.GPUName),
 		f.NumGPUs > 0 && o.NumGPUs != f.NumGPUs,
 		f.MinVRAM > 0 && o.GPURam/1024 < f.MinVRAM,
@@ -112,16 +115,26 @@ func (f Filter) Apply(rows []Row) []Row {
 			continue
 		}
 		r.EstDay = f.EstDay(r.Offer)
-		r.New = now-r.FirstSeen < 3600
+		r.New = r.Online && now-r.FirstSeen < 3600
 		out = append(out, r)
 	}
 	key, ok := sortKeys[f.Sort]
 	if !ok {
 		key = sortKeys["est"]
 	}
+	// 能租的在前，被租走的其次，下架的最后
+	rank := func(r Row) int {
+		switch {
+		case r.Online:
+			return 0
+		case r.Rented:
+			return 1
+		}
+		return 2
+	}
 	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Online != out[j].Online {
-			return out[i].Online
+		if a, b := rank(out[i]), rank(out[j]); a != b {
+			return a < b
 		}
 		if f.Desc {
 			return key(out[i]) > key(out[j])

@@ -203,9 +203,10 @@ type notifyState struct {
 	mu       sync.Mutex
 	seeded   bool
 	inst     map[int64]instSnap
-	lowSince time.Time // 余额提醒上次发出的时间，零值 = 现在没在报警
-	spendAt  time.Time // 上次查今天花费的时间
-	spendDay string    // 今天花费已经提醒过的 UTC 日期
+	machines map[int64]bool // 自己的实例在哪些机器上（机器列表据此标“你在租”）
+	lowSince time.Time      // 余额提醒上次发出的时间，零值 = 现在没在报警
+	spendAt  time.Time      // 上次查今天花费的时间
+	spendDay string         // 今天花费已经提醒过的 UTC 日期
 }
 
 type instSnap struct {
@@ -268,6 +269,13 @@ func (s *Server) notifyLoop(ctx context.Context) {
 	}
 }
 
+// myMachines 是自己的实例所在的机器（每分钟随通知检查刷新一次）。
+func (s *Server) myMachines() map[int64]bool {
+	s.notifyState.mu.Lock()
+	defer s.notifyState.mu.Unlock()
+	return s.notifyState.machines
+}
+
 func (s *Server) notifyCheck() {
 	c, err := s.notifyConfig()
 	if err != nil {
@@ -277,6 +285,13 @@ func (s *Server) notifyCheck() {
 	if err != nil {
 		return
 	}
+	mine := map[int64]bool{}
+	for _, x := range ins {
+		mine[int64(num(x["machine_id"]))] = true
+	}
+	s.notifyState.mu.Lock()
+	s.notifyState.machines = mine
+	s.notifyState.mu.Unlock()
 	burn := 0.0
 	for _, x := range ins {
 		burn += hourlyCost(x)

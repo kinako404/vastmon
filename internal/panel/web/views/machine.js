@@ -41,7 +41,9 @@ export async function machineView(ctx) {
     h('p', null, h('a', { href: '#/' }, '← 返回机器列表')),
     h('div', { class: 'title-row' },
       h('h1', null, `机器 ${m.machine_id} · ${m.num_gpus}× ${m.gpu_name}`),
-      m.online ? h('span', { class: 'badge on' }, '在线') : h('span', { class: 'badge' }, '已下架'),
+      m.online ? h('span', { class: 'badge on' }, '在线')
+        : m.rented ? h('span', { class: 'badge warn', title: `${fmtAgo(m.rented_seen)}看到被租着${m.mine ? '（你自己的实例）' : ''}${m.last_seen ? `；上次能租是 ${fmtAgo(m.last_seen)}` : ''}` }, m.mine ? '你在租' : '被租走')
+          : h('span', { class: 'badge' }, '已下架'),
       currentSession().logged_in && m.online
         ? h('button', { type: 'button', class: 'primary', onclick: () => openRentDialog(m, null, { blacklisted: marks.black.get(m.machine_id) }) }, '开机') : null,
       favBox),
@@ -74,7 +76,8 @@ export async function machineView(ctx) {
           ['可租天数', days(m.duration)],
           ['最近报价 ID / 主机', h('span', { class: 'mono' }, `${m.id} / ${m.host_id}`)],
           ['首次出现', fmtTime(m.first_seen)],
-          ['最后出现', `${fmtTime(m.last_seen)}（${fmtAgo(m.last_seen)}）`],
+          ['最后能租', m.last_seen ? `${fmtTime(m.last_seen)}（${fmtAgo(m.last_seen)}）` : '面板还没见过它空着'],
+          m.rented_seen ? ['最后看到被租着', `${fmtTime(m.rented_seen)}（${fmtAgo(m.rented_seen)}）`] : null,
         ]))),
     h('section', { class: 'card' },
       h('h2', null, `算力检测记录（${mine.length}）`),

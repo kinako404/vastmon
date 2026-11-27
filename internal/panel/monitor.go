@@ -64,7 +64,7 @@ func (m *Monitor) refreshCatalog() {
 func (m *Monitor) pollOnce() {
 	f := loadFilter(m.st)
 	ts := time.Now().Unix()
-	offers, err := m.cl.Search(f.GPUs, m.disk)
+	offers, err := m.cl.Search(f.GPUs, f.NumGPUs, m.disk)
 	if err == nil {
 		err = m.st.SaveOffers(ts, offers)
 	}
@@ -74,6 +74,17 @@ func (m *Monitor) pollOnce() {
 		log.Printf("抓取失败: %v", err)
 	} else {
 		log.Printf("抓取 %d 台 %v", len(offers), f.GPUs)
+	}
+	if err == nil {
+		// vast 同一接口大约每秒限一次
+		time.Sleep(1500 * time.Millisecond)
+		rented, rerr := m.cl.SearchRented(f.GPUs, f.NumGPUs, m.disk)
+		if rerr == nil {
+			rerr = m.st.SaveRented(ts, rented)
+		}
+		if rerr != nil {
+			log.Printf("抓取被租走的机器失败: %v", rerr)
+		}
 	}
 	if err := m.st.AddPoll(ts, len(offers), msg); err != nil {
 		log.Printf("记录抓取失败: %v", err)

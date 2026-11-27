@@ -103,12 +103,23 @@ func (c *Client) do(method, path string, body any, out any) error {
 	return json.Unmarshal(data, out)
 }
 
-// Search 拉取按需、已认证、未出租的机器；gpus 为空时不限型号。
+// Search 拉取按需、已认证、未出租的机器；gpus 为空时不限型号，numGPUs 为 0 时不限卡数。
 // disk 决定计价用的磁盘大小（GB），同时要求机器可用磁盘不少于它。
-func (c *Client) Search(gpus []string, disk float64) ([]Offer, error) {
+// vast 每次只随机给一部分符合条件的报价（每台机器一条，卡数也随机），
+// 所以列表按宽限期内出现过就算在线；指定卡数能让每次给的都是这个卡数的报价。
+func (c *Client) Search(gpus []string, numGPUs int, disk float64) ([]Offer, error) {
+	return c.search(marketQuery(true, gpus, numGPUs, disk))
+}
+
+// SearchRented 拉取眼下被别人租着的机器（vast 的 rentable=false；rented 字段
+// 只表示“被你自己租着”，按它过滤不起作用）。条件和 Search 一样。
+func (c *Client) SearchRented(gpus []string, numGPUs int, disk float64) ([]Offer, error) {
+	return c.search(marketQuery(false, gpus, numGPUs, disk))
+}
+
+func marketQuery(rentable bool, gpus []string, numGPUs int, disk float64) map[string]any {
 	q := map[string]any{
-		"rentable":          map[string]any{"eq": true},
-		"rented":            map[string]any{"eq": false},
+		"rentable":          map[string]any{"eq": rentable},
 		"verified":          map[string]any{"eq": true},
 		"type":              "on-demand",
 		"limit":             5000,
@@ -116,10 +127,16 @@ func (c *Client) Search(gpus []string, disk float64) ([]Offer, error) {
 		"disk_space":        map[string]any{"gte": disk},
 		"order":             [][]string{{"dph_total", "asc"}},
 	}
+	if rentable {
+		q["rented"] = map[string]any{"eq": false}
+	}
 	if len(gpus) > 0 {
 		q["gpu_name"] = map[string]any{"in": gpus}
 	}
-	return c.search(q)
+	if numGPUs > 0 {
+		q["num_gpus"] = map[string]any{"eq": numGPUs}
+	}
+	return q
 }
 
 // FindMachine 找这台机器眼下可租的报价（按价格升序），开机前用它拿最新的报价 ID。
@@ -165,7 +182,7 @@ func (c *Client) search(q map[string]any) ([]Offer, error) {
 
 // GPUNames 返回当前市场上（单卡、已认证）出现过的所有型号名。
 func (c *Client) GPUNames(disk float64) ([]string, error) {
-	offers, err := c.Search(nil, disk)
+	offers, err := c.Search(nil, 0, disk)
 	if err != nil {
 		return nil, err
 	}

@@ -48,7 +48,12 @@ function renderStats(st) {
   return h('div', { class: 'cards' },
     stat('上次抓取', fmtClock(p.ts), p.err ? '出错' : `${fmtAgo(p.ts)} · ${p.n} 条报价`, Boolean(p.err)),
     stat('所选型号在线', String(st.online), `每 ${fmtDuration(st.interval_sec)}抓取`),
-    stat('符合条件', String(online.length), st.rows.length > online.length ? `另有 ${st.rows.length - online.length} 台已下架` : '在线机器'),
+    stat('符合条件', String(online.length), (() => {
+      const rented = st.rows.filter((r) => r.rented).length;
+      const gone = st.rows.length - online.length - rented;
+      const more = [rented ? `${rented} 台被租走` : '', gone ? `${gone} 台已下架` : ''].filter(Boolean).join('、');
+      return more ? `可租；另有 ${more}` : '可租的机器';
+    })()),
     stat('最低估算日费', best ? '$' + fixed(best.est_day, 2) : '—', best ? `机器 ${best.machine_id} · ${fmtGeo(best.geolocation)}` : ''),
     stat('估算周费', best ? '$' + fixed(best.est_day * 7, 2) : '—', best ? `同一台 × 7 天` : ''),
     stat('估算月费', best ? '$' + fixed(best.est_day * 30, 2) : '—', best ? `同一台 × 30 天` : ''),
@@ -164,7 +169,8 @@ function columns(f, disk, rentCol, marks) {
         h('a', { class: 'mid', href: `#/machines/${r.machine_id}/${r.num_gpus}` }, String(r.machine_id)), ' ',
         markBadge(marks, r.machine_id),
         r.new ? h('span', { class: 'badge on' }, '新') : null,
-        r.online ? null : h('span', { class: 'badge' }, '下架'),
+        r.rented ? h('span', { class: 'badge warn', title: `${r.mine ? '你自己的实例在这台机器上' : 'vast 上这台眼下被别人租着'}（${fmtAgo(r.rented_seen)}看到被租着）${r.last_seen ? `，上次能租是 ${fmtAgo(r.last_seen)}` : '，面板还没见过它空着'}。价格是它挂的报价，空出来后可能会变` }, r.mine ? '你在租' : '被租走')
+          : r.online ? null : h('span', { class: 'badge' }, '下架'),
       ],
     },
     rentCol,
@@ -286,13 +292,13 @@ export async function machinesView(ctx) {
     mount(firstToggle, showFirst ? '收起“首次出现”列' : '展开“首次出现”列');
     const cols = columns(st.filter, st.disk, rentCol, marks).filter((c) => c && (showFirst || !c.optional)).map((c) => ({ ...c, head: sortHead(c) }));
     mount(tableBox, st.rows.length
-      ? table(cols, st.rows, (r) => [r.online ? '' : 'gone', markKind(marks, r.machine_id) ? 'row-' + markKind(marks, r.machine_id) : ''].join(' ').trim() || null)
+      ? table(cols, st.rows, (r) => [r.online ? '' : r.rented ? 'rented' : 'gone', markKind(marks, r.machine_id) ? 'row-' + markKind(marks, r.machine_id) : ''].join(' ').trim() || null)
       : empty('没有符合条件的机器'));
   }
 
   // samePreset tells whether filter f is preset p (sorting and "show gone"
   // are view settings, not part of a preset's match).
-  const presetKey = (f) => JSON.stringify(Object.keys(f).filter((k) => !['sort', 'desc', 'show_gone'].includes(k)).sort()
+  const presetKey = (f) => JSON.stringify(Object.keys(f).filter((k) => !['sort', 'desc', 'show_gone', 'show_rented'].includes(k)).sort()
     .map((k) => [k, k === 'gpus' ? [...(f[k] || [])].sort() : f[k] || 0]));
   const activePreset = () => (st.presets || []).find((p) => presetKey(p.filter) === presetKey(st.filter));
 
@@ -315,7 +321,7 @@ export async function machinesView(ctx) {
         title: p === cur ? '当前条件就是这个方案' : `切换到“${p.name}”`,
         onclick: (e) => {
           if (p === cur) return;
-          apply(() => put('filter', { ...p.filter, sort: st.filter.sort, desc: st.filter.desc, show_gone: st.filter.show_gone }), e.currentTarget).then(renderForm);
+          apply(() => put('filter', { ...p.filter, sort: st.filter.sort, desc: st.filter.desc, show_gone: st.filter.show_gone, show_rented: st.filter.show_rented }), e.currentTarget).then(renderForm);
         },
       }, p.name)) : h('span', { class: 'hint' }, '还没有，把常用条件存成方案就能一点切换'),
       h('span', { class: 'spacer' }),
@@ -430,13 +436,14 @@ export async function machinesView(ctx) {
       })),
     ]);
     const gone = h('input', { type: 'checkbox', checked: f.show_gone });
+    const rentedBox = h('input', { type: 'checkbox', checked: f.show_rented });
     const applyBtn = h('button', { type: 'submit', class: 'primary' }, '应用');
     const resetBtn = h('button', {
       type: 'button',
       onclick: (e) => apply(() => post('filter/reset'), e.currentTarget).then(renderForm),
     }, '恢复默认');
     const readForm = () => {
-      const next = { ...st.filter, show_gone: gone.checked };
+      const next = { ...st.filter, show_gone: gone.checked, show_rented: rentedBox.checked };
       next.gpus = gpuBoxes.filter((g) => g.box.checked).map((g) => g.box.value);
       for (const [key, { int, el }] of Object.entries(inputs)) {
         const v = Number(el.value) || 0;
@@ -453,11 +460,12 @@ export async function machinesView(ctx) {
     h('details', { class: 'gpu-pick' },
       h('summary', null, `型号：${f.gpus.length ? f.gpus.join('、') : '全部'}`,
         h('span', { class: 'gpu-search-wrap' }, search, matchInfo)),
-      h('p', { class: 'hint' }, '只抓取勾选的型号，都不勾则抓全部；型号有变化时立即重新抓取。'),
+      h('p', { class: 'hint' }, '只抓取勾选的型号（和填了的 GPU 数），都不勾则抓全部；型号或 GPU 数有变化时立即重新抓取。'),
       h('div', { class: 'gpu-list' }, gpuBoxes.map((g) => g.label))),
     groups,
     h('div', { class: 'toolbar' },
       applyBtn, resetBtn,
+      h('label', { class: 'field inline', title: '列出 vast 上眼下被别人租着的机器（看行情、记下好机器等它空出来）；租不了，没有开机按钮' }, rentedBox, '显示被租走的'),
       h('label', { class: 'field inline' }, gone, '显示已下架'),
       h('span', { class: 'hint' }, '0 或留空 = 不限，条件保存在服务端。')));
     mount(formBox, h('section', { class: 'card' }, h('h2', null, '过滤条件'), presetBar(readForm), form));

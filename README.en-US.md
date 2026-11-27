@@ -190,6 +190,8 @@ Each row is *one machine at one GPU count*: an 8-GPU host lists 1-, 2- and 4-GPU
 - Hover over the GPU name to see vast's reference compute figures: **DLPerf** (vast's generic deep-learning benchmark score for the whole machine), TFLOPS and **DLP/$/h** (= DLPerf ÷ $/h, higher is better value). They are vast's estimates, not measurements. The machine page shows them too.
 - Bandwidth price colors: green < 8, orange 8–20, red ≥ 20 ($ per TB).
 - A machine counts as online if it appeared in any of the last three polls. Tick 显示已下架 (show gone) to see vanished machines and their last price.
+- *显示被租走的* (show rented) also lists machines that are rented out on vast right now (tagged *被租走*, or *你在租* when your own instance is on it), after the rentable ones and without a rent button — to watch prices and note good machines until they free up. vast returns only a random part of the rented offers per search, so a machine counts as rented when it was seen rented in the last hour and has had no rentable offer in the last three polls; as soon as a rentable offer shows up it is back online.
+- With a GPU count in the filters, polling asks vast for that count only (for multi-GPU machines vast otherwise returns a random count each time), which makes the online status more accurate; changing the models or the GPU count polls right away.
 
 ### Renting (开机)
 
