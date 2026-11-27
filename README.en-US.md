@@ -25,6 +25,7 @@ vastmon polls the offers every two minutes, applies your filters, and ranks mach
 - Estimated daily / weekly / monthly cost, sortable by any column; per-machine price history
 - Save filter sets as presets and switch with one click
 - Favorites and a blacklist (mutually exclusive), highlighted green / red with your notes; favorites are re-checked for availability on every poll
+- Rent watch: click the blue star after a machine id to record every 5 minutes how many of its GPUs are rented, kept for 30 days, with rented rates over 24 hours / 7 days / 30 days and an hourly chart
 
 **Renting and managing instances**
 - Rent with a template and disk size of your choice; the price is re-checked against the latest offer before renting
@@ -191,6 +192,7 @@ Each row is *one machine at one GPU count*: an 8-GPU host lists 1-, 2- and 4-GPU
 - Bandwidth price colors: green < 8, orange 8–20, red ≥ 20 ($ per TB).
 - A machine counts as online if it appeared in any of the last three polls. Tick 显示已下架 (show gone) to see vanished machines and their last price.
 - *显示被租走的* (show rented) also lists machines that are rented out on vast right now (tagged *被租走*, or *你在租* when your own instance is on it), after the rentable ones and without a rent button — to watch prices and note good machines until they free up. vast returns only a random part of the rented offers per search, so a machine counts as rented when it was seen rented in the last hour and has had no rentable offer in the last three polls; as soon as a rentable offer shows up it is back online.
+- The blue star after a machine id is the rent watch. Filled (★): every 5 minutes (20 seconds past each 5-minute mark) the panel queries vast by machine id and records the machine's GPU count and how many are rentable, kept for 30 days; the figure next to the star is the 30-day rented rate. Rented rate = rented GPUs ÷ listed GPUs (a multi-GPU machine with some GPUs rented counts proportionally; samples with no offer at all, "not listed", are left out; your own rental counts as rented). Querying by machine id returns every offer, unlike the random sample a model search returns, so each sample is exact. The machine page charts the last 24 hours (5-minute cells) and day × hour; the 收藏 (favorites) page lists every watched machine. Clicking back to the hollow ☆ only stops sampling; records already taken stay until they expire.
 - With a GPU count in the filters, polling asks vast for that count only (for multi-GPU machines vast otherwise returns a random count each time), which makes the online status more accurate; changing the models or the GPU count polls right away.
 
 ### Renting (开机)
@@ -275,6 +277,7 @@ internal/panel/       the panel (Go):
   monitor.go filter*.go offer polling, filters and presets
   rent.go instance_*.go renting, instance actions, post-boot setup
   favorites.go blacklist.go         favorites and blacklist
+  rentwatch.go                      rent watch (5-minute samples, 30-day rented rate)
   bench.go bench.py baselines*.go   benchmark and baseline database
   term.go quickcmds.go files.go sshpool.go ssh_settings.go   web terminal, quick commands, file browser, SSH
   sysmon.go             system monitor on the terminal page

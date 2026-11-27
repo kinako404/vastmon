@@ -4,6 +4,7 @@ import { fmtTime, fmtAgo, fmtDuration, fixed, gb, costClass, shortCPU, cores } f
 import { fmtGeo } from '../lib/geo.js';
 import { openDialog } from '../lib/dialog.js';
 import { openRentDialog } from './rent.js';
+import { watchTip, pct, nowText } from '../lib/rentwatch.js';
 
 const POLL_MS = 30000;
 
@@ -39,6 +40,8 @@ export async function favoritesView(ctx) {
   const { signal } = ctx;
   const message = h('div');
   const box = h('div', null, loading());
+  const watchBox = h('div');
+  let watches = [];
   const status = h('span', { class: 'hint' });
   const checkBtn = h('button', { type: 'button', class: 'primary' }, '立即检查');
   let data = null;
@@ -118,6 +121,42 @@ export async function favoritesView(ctx) {
       ], favs, (f) => (f.offer ? null : 'unavail')) : empty('还没有收藏的机器。在“实例”页的实例卡片或开机记录里点“☆ 收藏本机”。')));
   }
 
+  async function unwatch(w, btn) {
+    btn.disabled = true;
+    try {
+      watches = (await del(`rentwatch/${w.machine_id}`)).watches;
+      renderWatches();
+    } catch (err) {
+      btn.disabled = false;
+      mount(message, errorBox(err));
+    }
+  }
+
+  function renderWatches() {
+    const logged = currentSession().logged_in;
+    const rate = (s) => h('span', { class: 'num' }, pct(s));
+    mount(watchBox, h('section', { class: 'card' },
+      h('h2', null, `被租监控（${watches.length}）`),
+      watches.length ? table([
+        {
+          title: '机器',
+          class: 'nowrap',
+          cell: (w) => [w.num_gpus ? h('a', { href: `#/machines/${w.machine_id}/${w.num_gpus}`, title: watchTip(w) }, String(w.machine_id)) : String(w.machine_id),
+            h('span', { class: 'rw-star on', title: watchTip(w) }, '★')],
+        },
+        { title: 'GPU', class: 'nowrap', cell: (w) => (w.gpu_name ? `${w.total ? `整机 ${w.total}× ` : ''}${w.gpu_name}` : '—') },
+        { title: '位置', class: 'nowrap', cell: (w) => h('span', { title: w.geolocation || '' }, fmtGeo(w.geolocation)) },
+        { title: '现在', class: 'nowrap', cell: (w) => [nowText(w), w.check_err ? h('div', { class: 'hint cost-bad' }, w.check_err) : null] },
+        { title: '近 24 小时', class: 'num', cell: (w) => rate(w.day) },
+        { title: '近 7 天', class: 'num', cell: (w) => rate(w.week) },
+        { title: '近 30 天', class: 'num strong', cell: (w) => rate(w.month) },
+        { title: '采样', class: 'num', cell: (w) => String(w.month.samples) },
+        { title: '开启于', class: 'nowrap', cell: (w) => [fmtTime(w.created).slice(0, 16), h('div', { class: 'hint' }, fmtAgo(w.created))] },
+        { title: '', class: 'nowrap', cell: (w) => (logged ? h('button', { type: 'button', class: 'small', onclick: (e) => unwatch(w, e.currentTarget) }, '关闭监控') : null) },
+      ], watches) : empty('没有开着的。在机器列表里点机器号后面的 ☆ 开启。'),
+      h('p', { class: 'hint' }, '每 5 分钟记一次，保留 30 天。被租率 = 被租的卡 ÷ 挂出来的卡；没挂出来的时间不算。关闭后已有记录保留，机器详情页还能看到图。')));
+  }
+
   checkBtn.addEventListener('click', async () => {
     checkBtn.disabled = true;
     try {
@@ -134,9 +173,10 @@ export async function favoritesView(ctx) {
   let timer = 0;
   async function refresh() {
     try {
-      data = await get('favorites', signal);
+      [data, { watches }] = await Promise.all([get('favorites', signal), get('rentwatch', signal)]);
       mount(message);
       render();
+      renderWatches();
     } catch (err) {
       if (!isAbort(err)) mount(message, errorBox(err));
     }
@@ -147,6 +187,6 @@ export async function favoritesView(ctx) {
   ctx.show(
     h('div', { class: 'title-row' }, h('h1', null, '收藏的机器'), h('span', { class: 'spacer' }), checkBtn),
     h('p', null, status),
-    message, box);
+    message, box, watchBox);
   await refresh();
 }

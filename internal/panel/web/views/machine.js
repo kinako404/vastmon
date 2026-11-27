@@ -1,10 +1,11 @@
-import { h, mount, table, kv, empty } from '../lib/dom.js';
+import { h, mount, table, kv, empty, errorBox } from '../lib/dom.js';
 import { summaryLine, report } from '../lib/bench.js';
 import { openDialog } from '../lib/dialog.js';
 import { get, currentSession } from '../lib/api.js';
 import { openRentDialog } from './rent.js';
 import { marksFrom, markButtons, markBadge } from '../lib/marks.js';
 import { fmtGeo } from '../lib/geo.js';
+import { watchMap, rentStar, rentChart, pct, nowText } from '../lib/rentwatch.js';
 import { fmtTime, fmtAgo, fixed, gb, days, costClass, cores } from '../lib/format.js';
 
 function cost(v) {
@@ -13,11 +14,13 @@ function cost(v) {
 
 export async function machineView(ctx) {
   const { mid, n } = ctx.params;
-  const [d, fv, bm, bl] = await Promise.all([
+  const [d, fv, bm, bl, rw, rs] = await Promise.all([
     get(`machines/${encodeURIComponent(mid)}/${encodeURIComponent(n)}`, ctx.signal),
     get('blacklist', ctx.signal),
     get('benchmarks', ctx.signal),
     get('baselines', ctx.signal),
+    get('rentwatch', ctx.signal),
+    get(`rentwatch/${encodeURIComponent(mid)}`, ctx.signal),
   ]);
   const m = d.machine;
   const f = d.filter;
@@ -37,6 +40,29 @@ export async function machineView(ctx) {
     mount(favBox, currentSession().logged_in ? markButtons(m, marks, '机器详情页', showMarks) : markBadge(marks, m.machine_id));
   };
   showMarks(fv);
+  const rentBox = h('section', { class: 'card' });
+  const showRent = (list, series) => {
+    const w = watchMap(list).get(m.machine_id);
+    const head = h('h2', null, '被租监控 ', rentStar(watchMap(list), m.machine_id, currentSession().logged_in, async (next) => {
+      try {
+        showRent(next, (await get(`rentwatch/${m.machine_id}`)).series);
+      } catch (err) {
+        mount(rentBox, head, errorBox(err));
+      }
+    }, (err) => mount(rentBox, head, errorBox(err))));
+    const hasData = series.total.some((t) => t >= 0);
+    mount(rentBox, head,
+      w ? kv([
+        ['现在', `${nowText(w)}${w.check_err ? `（上次采样出错：${w.check_err}）` : ''}`],
+        ['被租率', `近 24 小时 ${pct(w.day)} · 近 7 天 ${pct(w.week)} · 近 30 天 ${pct(w.month)}`],
+        ['采样', `${w.month.samples} 次${w.month.offline ? `，其中 ${w.month.offline} 次没挂出来（不算进被租率）` : ''}；每 5 分钟一次，保留 30 天`],
+      ]) : h('p', { class: 'hint' }, hasData
+        ? '监控已关闭，下面是之前的记录（30 天后过期）。点星重新开启。'
+        : '没开。点标题旁的星开启：每 5 分钟记一次这台机器有几张卡被租着，保留 30 天，算近一个月的被租率。'),
+      hasData ? rentChart(series) : null,
+      h('p', { class: 'hint' }, '被租率 = 被租的卡 ÷ 挂出来的卡，按每次采样累计；多卡机器租掉一部分卡按比例算。按机器号查 vast 每次都给全，结果是准的；你自己租着也算被租。'));
+  };
+  showRent(rw.watches, rs.series);
   ctx.show(
     h('p', null, h('a', { href: '#/' }, '← 返回机器列表')),
     h('div', { class: 'title-row' },
@@ -79,6 +105,7 @@ export async function machineView(ctx) {
           ['最后能租', m.last_seen ? `${fmtTime(m.last_seen)}（${fmtAgo(m.last_seen)}）` : '面板还没见过它空着'],
           m.rented_seen ? ['最后看到被租着', `${fmtTime(m.rented_seen)}（${fmtAgo(m.rented_seen)}）`] : null,
         ]))),
+    rentBox,
     h('section', { class: 'card' },
       h('h2', null, `算力检测记录（${mine.length}）`),
       mine.length

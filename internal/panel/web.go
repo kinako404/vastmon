@@ -96,6 +96,10 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("PUT /api/favorites/{mid}/note", s.auth.require(s.favoriteNote))
 	mux.HandleFunc("DELETE /api/favorites/{mid}", s.auth.require(s.removeFavorite))
 	mux.HandleFunc("GET /api/blacklist", s.blacklist)
+	mux.HandleFunc("GET /api/rentwatch", s.rentWatches)
+	mux.HandleFunc("GET /api/rentwatch/{mid}", s.rentSeries)
+	mux.HandleFunc("POST /api/rentwatch/{mid}", s.auth.require(s.addRentWatch))
+	mux.HandleFunc("DELETE /api/rentwatch/{mid}", s.auth.require(s.removeRentWatch))
 	mux.HandleFunc("POST /api/instances/{id}/bench", s.auth.require(s.runBench))
 	mux.HandleFunc("GET /api/benchmarks", s.benchmarks)
 	mux.HandleFunc("GET /api/baselines", s.baselines)
@@ -183,6 +187,7 @@ type state struct {
 	GPUNames    []string       `json:"gpu_names"`
 	Favorites   []FavoriteMark `json:"favorites"`
 	Blacklist   []FavoriteMark `json:"blacklist"`
+	RentWatches []RentWatch    `json:"rent_watches"`
 	Presets     []filterPreset `json:"presets"`
 	IntervalSec int            `json:"interval_sec"`
 	Disk        float64        `json:"disk"`
@@ -229,7 +234,11 @@ func (s *Server) buildState() (state, error) {
 	if err != nil {
 		return state{}, err
 	}
-	return state{Favorites: favs, Blacklist: black, Presets: presets,
+	watches, err := s.st.RentWatches()
+	if err != nil {
+		return state{}, err
+	}
+	return state{Favorites: favs, Blacklist: black, Presets: presets, RentWatches: watches,
 		Filter: f, Rows: f.Apply(rows), Online: online, Poll: poll, GPUNames: names,
 		IntervalSec: int(s.mon.interval.Seconds()), Disk: s.mon.disk,
 	}, nil

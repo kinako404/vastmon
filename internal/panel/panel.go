@@ -138,6 +138,7 @@ func Main(v string) {
 	app.scriptsInit()
 	go app.scriptsLoop(ctx)
 	go app.notifyLoop(ctx)
+	go app.rentWatchLoop(ctx)
 	srv := &http.Server{Addr: *addr, Handler: app.routes()}
 	go func() {
 		<-ctx.Done()

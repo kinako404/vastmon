@@ -2,6 +2,7 @@ import { h, mount, errorBox, loading, empty, table, field } from '../lib/dom.js'
 import { get, post, put, del, isAbort, currentSession } from '../lib/api.js';
 import { openRentDialog } from './rent.js';
 import { marksFrom, markBadge, markKind } from '../lib/marks.js';
+import { watchMap, rentStar } from '../lib/rentwatch.js';
 import { fmtGeo, geoMode, setGeoMode, GEO_MODES } from '../lib/geo.js';
 import { fmtClock, fmtAgo, fmtDuration, fixed, gb, days, costClass, shortCPU, cores } from '../lib/format.js';
 
@@ -160,13 +161,13 @@ function gpuPerf(r) {
     '都是 vast 的估算参考值，不是实测'].filter(Boolean).join('\n');
 }
 
-function columns(f, disk, rentCol, marks) {
+function columns(f, disk, rentCol, marks, star) {
   return [
     {
       title: '机器',
       class: 'nowrap',
       cell: (r) => [
-        h('a', { class: 'mid', href: `#/machines/${r.machine_id}/${r.num_gpus}` }, String(r.machine_id)), ' ',
+        h('a', { class: 'mid', href: `#/machines/${r.machine_id}/${r.num_gpus}` }, String(r.machine_id)), star(r.machine_id), ' ',
         markBadge(marks, r.machine_id),
         r.new ? h('span', { class: 'badge on' }, '新') : null,
         r.rented ? h('span', { class: 'badge warn', title: `${r.mine ? '你自己的实例在这台机器上' : 'vast 上这台眼下被别人租着'}（${fmtAgo(r.rented_seen)}看到被租着）${r.last_seen ? `，上次能租是 ${fmtAgo(r.last_seen)}` : '，面板还没见过它空着'}。价格是它挂的报价，空出来后可能会变` }, r.mine ? '你在租' : '被租走')
@@ -290,7 +291,12 @@ export async function machinesView(ctx) {
       }, '开机') : null),
     } : null;
     mount(firstToggle, showFirst ? '收起“首次出现”列' : '展开“首次出现”列');
-    const cols = columns(st.filter, st.disk, rentCol, marks).filter((c) => c && (showFirst || !c.optional)).map((c) => ({ ...c, head: sortHead(c) }));
+    const watches = watchMap(st.rent_watches);
+    const star = (id) => rentStar(watches, id, currentSession().logged_in, (list) => {
+      st.rent_watches = list;
+      renderTable();
+    }, (err) => mount(message, errorBox(err)));
+    const cols = columns(st.filter, st.disk, rentCol, marks, star).filter((c) => c && (showFirst || !c.optional)).map((c) => ({ ...c, head: sortHead(c) }));
     mount(tableBox, st.rows.length
       ? table(cols, st.rows, (r) => [r.online ? '' : r.rented ? 'rented' : 'gone', markKind(marks, r.machine_id) ? 'row-' + markKind(marks, r.machine_id) : ''].join(' ').trim() || null)
       : empty('没有符合条件的机器'));
@@ -482,6 +488,7 @@ export async function machinesView(ctx) {
     h('p', { class: 'hint' },
       '$/h 已含磁盘费（按 ' + st.disk + ' GB 计）。估算 $/天 = 单价 × 24 + 每天下行 GB × 下行流量费 + 每天上行 GB × 上行流量费（$/TB 按 1024 GB 折算），后半段就是“预估流量费”那列。',
       '鼠标停在 GPU 名上可以看 vast 给的算力参考值（DLPerf、TFLOPS、DLP/$/h），不是实测。',
+      '机器号后面的蓝色星是被租监控：点亮（★）后每 5 分钟记一次这台机器有没有被租，保留 30 天，星旁边是近 30 天被租率；详情和图在机器详情页，全部列表在“收藏”页。',
       '“各项最佳”只比在线、符合条件的机器，每项单独比，不合成总分；鼠标停在卡片上有算法说明。',
       '流量费颜色：', h('span', { class: 'cost-ok' }, '< 8'), ' / ', h('span', { class: 'cost-warn' }, '8–20'), ' / ',
       h('span', { class: 'cost-bad' }, '≥ 20'), ' $/TB。', `每 ${POLL_MS / 1000} 秒自动刷新列表。`));
