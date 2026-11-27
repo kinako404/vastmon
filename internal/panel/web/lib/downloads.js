@@ -99,8 +99,8 @@ export function jobPanel(j, { onCancel, folds }) {
   const open = folds.has(j.id) ? !active : active;
   const details = h('details', { class: 'dl-panel', open },
     h('summary', null,
-      h('span', { class: 'strong' }, '启动下载器'),
-      j.profile ? h('span', { class: 'badge', title: '下载配置' }, j.profile) : null,
+      h('span', { class: 'strong' }, j.manual ? '下载' : '启动下载器'),
+      j.profile && !j.manual ? h('span', { class: 'badge', title: '下载配置' }, j.profile) : null,
       h('span', { class: 'badge ' + cls }, text),
       j.auto ? h('span', { class: 'hint' }, '开机自动') : null,
       active && j.phase ? h('span', { class: 'hint' }, j.phase) : null,
@@ -135,6 +135,103 @@ export function enabledSummary(set) {
   const on = set.items.filter((it) => it.enabled);
   const size = on.reduce((s, it) => s + Math.max(it.size, 0), 0);
   return { count: on.length, size, unknown: on.some((it) => !(it.size > 0)) };
+}
+
+const URL_DIR_KEY = 'vastmon.dlUrlDir';
+
+// openURLDialog downloads links that are not in a download set onto
+// instance x: Hugging Face and Civitai links get the tokens from the
+// settings, any other http(s) link is fetched as it is. 解析 checks the links
+// first (file name, size); a job already running on the instance takes the
+// links at the end of its queue.
+export function openURLDialog(x, running, onStarted) {
+  const d = openDialog({ wide: true });
+  const urls = h('textarea', {
+    class: 'mono', rows: '5', spellcheck: 'false', required: true,
+    placeholder: 'https://huggingface.co/…/resolve/main/x.safetensors\nhttps://civitai.com/models/123?modelVersionId=456\nhttps://example.com/any/file.bin',
+  });
+  const dirList = h('datalist', { id: 'dl-url-dirs' }, COMMON_DIRS.map((v) => h('option', { value: v })));
+  const dir = h('input', { class: 'mono', list: 'dl-url-dirs', required: true, spellcheck: 'false', value: localStorage.getItem(URL_DIR_KEY) || 'models/loras' });
+  const name = h('input', { class: 'mono', spellcheck: 'false', placeholder: '留空 = 用链接给的文件名' });
+  const nameNote = h('span', { class: 'hint' });
+  const checkBox = h('div');
+  const msg = h('div');
+  const check = h('button', { type: 'button' }, '解析');
+  const ok = h('button', { type: 'submit', class: 'primary' }, running ? '加到下载队列' : '下载');
+  const free = x.disk_space > 0 ? (x.disk_space - (x.disk_usage || 0)) * 1e9 : NaN;
+  const lines = () => urls.value.split('\n').map((s) => s.trim()).filter(Boolean);
+  const onLines = () => {
+    const n = lines().length;
+    name.disabled = n > 1;
+    nameNote.textContent = n > 1 ? `${n} 个链接时不能统一改名，用各自的文件名` : '';
+    ok.disabled = !n;
+    mount(checkBox);
+  };
+  urls.addEventListener('input', onLines);
+
+  check.addEventListener('click', async () => {
+    const list = lines();
+    if (!list.length) return;
+    check.disabled = true;
+    const rows = list.map((u) => {
+      const row = h('div', { class: 'dl-check' }, h('span', { class: 'mono' }, u.replace(/([?&]token=)[^&]+/, '$1…')), h('span', { class: 'hint' }, '解析中…'));
+      return { u, row };
+    });
+    const total = h('div', { class: 'hint' });
+    mount(checkBox, h('div', { class: 'dl-picks' }, rows.map((r) => r.row)), total);
+    let size = 0;
+    let unknown = 0;
+    for (const r of rows) {
+      try {
+        const res = await post('downloads/resolve', { url: r.u });
+        const fname = list.length === 1 && name.value.trim() ? name.value.trim() : res.name;
+        mount(r.row, h('span', { class: 'mono' }, fname || '（链接没给文件名，要填文件名）'),
+          h('span', { class: 'hint' }, res.host), h('span', { class: 'dl-num' }, bytes(res.size)));
+        if (res.size > 0) size += res.size;
+        else unknown++;
+      } catch (err) {
+        mount(r.row, h('span', { class: 'mono' }, r.u.replace(/([?&]token=)[^&]+/, '$1…')), h('span', { class: 'cost-bad' }, err.message));
+      }
+    }
+    const over = Number.isFinite(free) && size > free;
+    mount(total, h('span', { class: over ? 'cost-bad' : null },
+      `共 ${bytes(size)}${unknown ? `（另有 ${unknown} 个不知道大小）` : ''}`, Number.isFinite(free) ? `，实例磁盘剩约 ${fmtBytes(free)}` : ''));
+    check.disabled = false;
+  });
+
+  mount(d.body, h('form', {
+    onsubmit: async (e) => {
+      e.preventDefault();
+      const list = lines();
+      if (!list.length) return;
+      ok.disabled = true;
+      d.setBusy(true);
+      try {
+        const items = list.map((u) => ({ url: u, dir: dir.value.trim(), name: list.length === 1 ? name.value.trim() : '' }));
+        const r = await post(`instances/${x.id}/download-urls`, { items });
+        localStorage.setItem(URL_DIR_KEY, dir.value.trim());
+        d.setBusy(false);
+        d.close();
+        if (onStarted) onStarted(r.job, r.queued);
+      } catch (err) {
+        d.setBusy(false);
+        ok.disabled = false;
+        mount(msg, errorBox(err));
+      }
+    },
+  },
+  h('h2', null, `下载链接：实例 ${x.id} · ${x.num_gpus}× ${x.gpu_name}`),
+  h('p', { class: 'hint' }, 'Hugging Face / Civitai 链接自动带“设置 → 启动下载配置”里的 token（Civitai 模型页链接带 modelVersionId 就行；链接里带 token= 的会存进设置）；',
+    '其它 http(s) 链接原样下载，要认证的把 token 写在链接里。实例上用 aria2 下载，已有同名同大小的文件会跳过。',
+    running ? h('span', { class: 'strong' }, ' 这台实例已经有下载在跑，这些链接会排到它后面。') : null),
+  field('链接（一行一个）', urls),
+  field('下到哪个目录', h('span', null, dir, dirList), `相对 ComfyUI 工作目录（也可以写绝对路径），比如 models/loras、models/diffusion_models`),
+  h('label', { class: 'field' }, h('span', { class: 'field-label' }, '文件名（可选）'), name, nameNote),
+  checkBox, msg,
+  h('div', { class: 'toolbar end' }, check, h('span', { class: 'spacer' }),
+    h('button', { type: 'button', onclick: d.close }, '取消'), ok)));
+  onLines();
+  urls.focus();
 }
 
 // openDownloadDialog lets the user pick files and start the downloader on

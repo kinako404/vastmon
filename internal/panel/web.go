@@ -142,6 +142,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/downloads/jobs", s.auth.require(s.downloadJobs))
 	mux.HandleFunc("POST /api/downloads/jobs/{jid}/cancel", s.auth.require(s.cancelDownload))
 	mux.HandleFunc("POST /api/instances/{id}/download", s.auth.require(s.startDownload))
+	mux.HandleFunc("POST /api/instances/{id}/download-urls", s.auth.require(s.downloadURLs))
 	mux.HandleFunc("POST /api/instances/{id}/backup-input", s.auth.require(s.backupInputNow))
 	mux.HandleFunc("GET /api/input/jobs", s.auth.require(s.inputJobList))
 	mux.HandleFunc("POST /api/input/jobs/{jid}/decide", s.auth.require(s.inputJobDecide))

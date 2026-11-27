@@ -5,7 +5,7 @@ import { fmtGeo } from '../lib/geo.js';
 import { openDialog, confirmDialog, copyText } from '../lib/dialog.js';
 import { marksFrom, emptyMarks, markButtons, openMarkDialog } from '../lib/marks.js';
 import { summaryLine, report, powerBadge, asBaseline } from '../lib/bench.js';
-import { jobPanel, latestJobs, isActive, openDownloadDialog } from '../lib/downloads.js';
+import { jobPanel, latestJobs, isActive, openDownloadDialog, openURLDialog } from '../lib/downloads.js';
 import { inputJobPanel, inputJobTitle, latestInputJobs, inputActive, createRateMeter } from '../lib/inputjob.js';
 import { scriptJobPanel, latestScriptJobs, isActive as scriptActive, openScriptsDialog } from '../lib/scripts.js';
 
@@ -599,6 +599,8 @@ export async function instancesView(ctx) {
       btn('销毁', () => confirmAction(x, 'destroy'), 'danger', '永久删除实例'),
       h('span', { class: 'sep' }),
       x.actual_status === 'running' ? h('a', { class: 'button small', href: `#/terminal?instance=${x.id}`, title: '打开网页终端和文件浏览器' }, '终端') : null,
+      x.actual_status === 'running' ? btn('下载', () => openURLDialog(x, isActive(jobs.get(x.id)), (j) => { jobs.set(x.id, j); dlFolds.delete(j.id); renderDownloads(); }),
+        null, '贴链接直接下到实例上（Hugging Face / Civitai 自动带 token，其它 http(s) 链接也行），不用先加进下载配置') : null,
       x.actual_status === 'running' ? btn('启动下载器', () => openDownloadDialog(x, (j) => { jobs.set(x.id, j); dlFolds.delete(j.id); renderDownloads(); }),
         isActive(jobs.get(x.id)) ? null : 'ok', '用 aria2 把“设置 → 启动下载配置”里的文件下到实例上，并同步 ComfyUI 的 input') : null,
       x.actual_status === 'running' ? btn('运行脚本', () => openScriptsDialog(x, (j) => { scJobs.set(x.id, j); scFolds.delete(j.id); renderDownloads(); }),

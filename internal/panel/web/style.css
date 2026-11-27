@@ -597,6 +597,10 @@ details.gpu-pick:not([open]) .gpu-search-wrap { display: none; }
 .dl-pick > .mono { overflow-wrap: anywhere; }
 .dl-pick > .hint:nth-child(3) { overflow-wrap: anywhere; }
 .dl-pick > .hint:nth-child(5) { grid-column: 2 / -1; }
+.dl-check { display: grid; grid-template-columns: minmax(0, 1fr) 190px 70px; gap: 2px 10px; align-items: center; padding: 3px 0; border-top: 1px solid var(--border); }
+.dl-check:first-child { border-top: none; }
+.dl-check > .mono { overflow-wrap: anywhere; }
+.dl-check > .cost-bad { grid-column: 1 / -1; font-size: 12px; }
 .backup-opt { margin-top: 10px; }
 .in-job.ask { border-color: var(--warn); }
 .in-line { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }

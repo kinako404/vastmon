@@ -82,12 +82,15 @@ type dlJob struct {
 	Status      string   `json:"status"` // waiting / running / done / partial / failed / canceled
 	Phase       string   `json:"phase"`
 	Auto        bool     `json:"auto"`
+	Manual      bool     `json:"manual"` // 实例卡片“下载”手动给的链接，不是按下载配置建的
 	Profile     string   `json:"profile"`
 	Root        string   `json:"root"`
 	Connections int      `json:"connections"`
 	Input       dlInput  `json:"input"`
 	Files       []dlFile `json:"files"`
 	Err         string   `json:"err"`
+	// closed：文件都跑过了，任务在收尾，不能再往里加文件（只在内存里）
+	closed bool
 }
 
 func (j *dlJob) active() bool { return j.Status == "waiting" || j.Status == "running" }
@@ -303,7 +306,11 @@ func (s *Server) finishJob(j *dlJob, status, msg string) {
 	s.dl.mu.Unlock()
 	s.saveJob(j)
 	detail := fmt.Sprintf("任务 %d：%s", j.ID, jobSummary(j))
-	if e := s.st.AddAction(InstanceAction{TS: time.Now().Unix(), InstanceID: j.InstanceID, Action: "启动下载器", Detail: detail, Err: msg}); e != nil {
+	action := "启动下载器"
+	if j.Manual {
+		action = "下载链接"
+	}
+	if e := s.st.AddAction(InstanceAction{TS: time.Now().Unix(), InstanceID: j.InstanceID, Action: action, Detail: detail, Err: msg}); e != nil {
 		log.Printf("记录实例操作失败: %v", e)
 	}
 	log.Printf("下载任务 %d（实例 %d）结束：%s %s", j.ID, j.InstanceID, status, msg)
@@ -417,13 +424,27 @@ func (s *Server) runJobSteps(ctx context.Context, j *dlJob) error {
 	if err != nil {
 		return err
 	}
-	if len(j.Files) > 0 {
+	aria2 := false
+	needAria2 := func() error {
+		if aria2 {
+			return nil
+		}
 		s.setPhase(j, "检查 aria2（没有就 apt 安装）")
 		if _, errOut, err := s.remote(ctx, j, aria2Install+"; mkdir -p "+dlRemoteDir, nil, 10*time.Minute); err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
 			return fmt.Errorf("装不上 aria2：%s", firstLine(errOut+" "+err.Error()))
+		}
+		aria2 = true
+		return nil
+	}
+	s.dl.mu.Lock()
+	n := len(j.Files)
+	s.dl.mu.Unlock()
+	if n > 0 {
+		if err := needAria2(); err != nil {
+			return err
 		}
 	}
 	if j.Input.Status == "queued" || j.Input.Status == "running" {
@@ -432,18 +453,27 @@ func (s *Server) runJobSteps(ctx context.Context, j *dlJob) error {
 			return ctx.Err()
 		}
 	}
-	for i := range j.Files {
+	// 跑的时候“下载”按钮还会往任务里加文件，所以每次重新看长度；
+	// 跑完最后一个就关上（closed），之后加的链接另开任务。
+	for i := 0; ; i++ {
 		s.dl.mu.Lock()
+		if i >= len(j.Files) {
+			j.closed = true
+			s.dl.mu.Unlock()
+			return nil
+		}
 		st := j.Files[i].Status
 		s.dl.mu.Unlock()
 		if st != fQueued && st != fActive {
 			continue
 		}
+		if err := needAria2(); err != nil {
+			return err
+		}
 		if err := s.runFile(ctx, j, i, cfg); err != nil {
 			return err
 		}
 	}
-	return nil
 }
 
 func (s *Server) syncInputStep(ctx context.Context, j *dlJob) {
@@ -526,7 +556,7 @@ func (s *Server) runFile(ctx context.Context, j *dlJob, i int, cfg dlConfig) err
 			}
 			if name == "" {
 				s.setFile(j, i, func(x *dlFile) {
-					x.Status, x.Err, x.Finished = fFailed, "链接没给文件名，到设置里给这一项填上文件名", time.Now().Unix()
+					x.Status, x.Err, x.Finished = fFailed, "链接没给文件名：给它填上文件名再下（下载配置里的到设置里填）", time.Now().Unix()
 				})
 				return nil
 			}
@@ -834,6 +864,115 @@ func (s *Server) startDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	s.startJob(j)
 	writeJSON(w, s.jobSnapshot(j))
+}
+
+const maxManualFiles = 50
+
+// downloadURLs 是实例卡片的“下载”：直接给链接（HF / Civitai 自动带 token，其它
+// http(s) 链接原样下），不用先进下载配置。实例上已有下载任务在跑（或在等实例跑起来）
+// 就排到它后面；没有就新开一个任务。
+func (s *Server) downloadURLs(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Items []struct {
+			URL  string `json:"url"`
+			Dir  string `json:"dir"`
+			Name string `json:"name"`
+		} `json:"items"`
+	}
+	// 签名链接可能很长，不用 decodeBody 的 16KB 上限
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "请求格式不对："+err.Error())
+		return
+	}
+	if len(body.Items) == 0 {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "没有链接")
+		return
+	}
+	if len(body.Items) > maxManualFiles {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", fmt.Sprintf("一次最多 %d 个链接", maxManualFiles))
+		return
+	}
+	c, err := s.dlConfig()
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	// 和下载配置一样：链接里的 Civitai token 拿出来，任务里只存不带 token 的链接
+	// （任务会发给浏览器）；还没设置 Civitai token 时把它存进设置。
+	newTok := ""
+	files := make([]dlFile, 0, len(body.Items))
+	for _, it := range body.Items {
+		u, tok, err := normalizeURL(it.URL)
+		if tok != "" && c.CivitaiToken == "" {
+			newTok = tok
+		}
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+			return
+		}
+		dir, err := cleanDir(it.Dir)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+			return
+		}
+		name, err := cleanName(it.Name)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+			return
+		}
+		files = append(files, dlFile{URL: u, Dir: dir, Name: name, Status: fQueued})
+	}
+	if newTok != "" {
+		c.CivitaiToken = newTok
+		if err := s.st.Set("downloads", c); err != nil {
+			s.fail(w, err)
+			return
+		}
+		log.Printf("手动下载：链接里的 Civitai token 存进了下载设置")
+	}
+	s.dl.mu.Lock()
+	var j *dlJob
+	for _, x := range s.dl.jobs {
+		if x.InstanceID == id && x.active() && !x.closed {
+			j = x
+		}
+	}
+	if j != nil {
+		j.Files = append(j.Files, files...)
+	}
+	s.dl.mu.Unlock()
+	if j != nil {
+		s.saveJob(j)
+		log.Printf("实例 %d 的下载任务 %d 加了 %d 个链接", id, j.ID, len(files))
+		writeJSON(w, map[string]any{"job": s.jobSnapshot(j), "queued": true})
+		return
+	}
+	j = &dlJob{InstanceID: id, Created: time.Now().Unix(), Status: "waiting", Manual: true, Profile: "手动下载",
+		Root: c.Root, Connections: c.Connections, Files: files}
+	s.dl.mu.Lock()
+	for _, x := range s.dl.jobs {
+		if x.InstanceID == id && x.active() {
+			s.dl.mu.Unlock()
+			writeError(w, http.StatusConflict, "DOWNLOAD", fmt.Sprintf("实例 %d 的下载任务 %d 正在收尾，过几秒再试", id, x.ID))
+			return
+		}
+	}
+	res, err := s.st.db.Exec(`INSERT INTO download_jobs (instance_id, created, status, data) VALUES (?, ?, ?, '{}')`, id, j.Created, j.Status)
+	if err != nil {
+		s.dl.mu.Unlock()
+		s.fail(w, err)
+		return
+	}
+	j.ID, _ = res.LastInsertId()
+	s.dl.jobs[j.ID] = j
+	s.dl.mu.Unlock()
+	s.startJob(j)
+	log.Printf("实例 %d 手动下载 %d 个链接（任务 %d）", id, len(files), j.ID)
+	writeJSON(w, map[string]any{"job": s.jobSnapshot(j), "queued": false})
 }
 
 func (s *Server) jobSnapshot(j *dlJob) dlJob {

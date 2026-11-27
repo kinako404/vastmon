@@ -47,6 +47,7 @@ vastmon polls the offers every two minutes, applies your filters, and ranks mach
 - Define one or more download lists (URL + target directory) in the settings; Hugging Face and Civitai are supported, tokens included
 - aria2 downloads on the instance with multiple connections; each file shows progress and speed; existing files are skipped, interrupted ones resume, and files that will not fit are flagged
 - Tick "start the downloader after boot" when renting and the download begins as soon as the machine is up
+- *下载* (download) on the instance card: paste links without adding them to a list (Hugging Face / Civitai get the tokens, any other http(s) link works too), check names and sizes first; while a download is running they queue behind it
 - ComfyUI-specific: syncs the `input` folder (your uploaded images and videos) to new instances, and pulls it back into a local backup before stop / recycle / destroy
 
 **Startup scripts**
@@ -208,6 +209,9 @@ Under Settings → 启动下载配置 (download configuration), create one or mo
 - Hugging Face `/blob/` links are rewritten to `/resolve/`; gated models need an HF token.
 - For Civitai you can paste a model page, a version download link or just a model ID; most models need a Civitai token.
 - The panel resolves the real download URL with your token first and hands only that to the instance, so tokens normally never reach the instance.
+- Any other http(s) link is downloaded as it is (put a token in the link if the site needs one); a link that opens a web page instead of a file fails with that reason.
+
+One-off downloads do not need a list: *下载* on the instance card takes one link per line and a target directory (and a file name when there is a single link); *解析* (resolve) shows the file names, sizes and whether they fit before you start. If the instance is already downloading, the links join the end of that job; otherwise a new *下载* job starts and shows its progress on the card, skipping existing files, resuming and flagging files that do not fit just like the downloader. A Civitai `token=` in a link moves into the settings (if none is set there) and is not kept in the job record.
 
 aria2 is installed with `apt-get` if the instance does not have it. *ComfyUI input sync* only makes sense for ComfyUI: on start it unpacks `backups/input.tar.gz` into `input/` under the working directory, and before stop / recycle / destroy it pulls the instance's `input/` back and merges it in (adding and updating, never deleting). The pull runs as a background job shown on the instance card, and the action only happens once the backup is in; if the link from the instance is slow and the pull is still going after the configured time (3 minutes by default), the card asks whether to keep waiting, give the backup up and go ahead, or cancel. *清空 input 备份* in the settings empties the panel's backup (the old one is kept once as `input.tar.gz.prev`), so new instances no longer receive the old files.
 
