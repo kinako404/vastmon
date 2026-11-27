@@ -88,6 +88,7 @@ func (f Filter) EstDay(o Offer) float64 {
 
 var sortKeys = map[string]func(Row) float64{
 	"est":     func(r Row) float64 { return r.EstDay },
+	"traffic": func(r Row) float64 { return r.EstDay - r.Dph*24 },
 	"dph":     func(r Row) float64 { return r.Dph },
 	"disk_h":  func(r Row) float64 { return r.StorageHour },
 	"down":    func(r Row) float64 { return r.InetDown },

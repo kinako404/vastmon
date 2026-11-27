@@ -101,7 +101,7 @@ function bestPicks(st) {
     },
     {
       title: '每 $ 功耗最高', badge: '功耗/$ 最高', cmp: 'times',
-      tip: '功耗上限 × 卡数 ÷ $/h。同型号的卡算力随功耗上限走（被限到 400W 的卡长时间满载明显慢），功耗上限是 vast 报的，和卡上 nvidia-smi 一致',
+      tip: '功耗上限 × 卡数 ÷ $/h。同型号的卡长时间满载的算力随功耗上限走（RTX PRO 6000 实测持续 FP16：600W 约 345–358、550W 约 330、400W 约 283 TFLOPS），功耗上限是 vast 报的，和卡上 nvidia-smi 一致',
       score: (r) => (watts(r) > 0 && r.dph_total > 0 ? watts(r) / r.dph_total : NaN), fmt: (v) => `${fixed(v, 0)} W/$`,
       value: (r) => `${fixed(watts(r), 0)}W`, detail: (r) => `$${fixed(r.dph_total, 3)}/h`,
     },
@@ -155,7 +155,7 @@ function gpuPerf(r) {
     '都是 vast 的估算参考值，不是实测'].filter(Boolean).join('\n');
 }
 
-function columns(disk, rentCol, marks, picks) {
+function columns(f, disk, rentCol, marks, picks) {
   const awards = (r) => picks.filter((p) => p.row === r)
     .map((p) => h('span', { class: 'badge best', title: `${p.title}：${p.value(r)}（${compareText(p)}）` }, p.badge));
   return [
@@ -194,6 +194,13 @@ function columns(disk, rentCol, marks, picks) {
     { title: '估算 $/天', key: 'est', class: 'num strong', cell: (r) => fixed(r.est_day, 2) },
     { title: '下行 $/TB', key: 'down_tb', class: 'num', cell: (r) => costCell(r.internet_down_cost_per_tb) },
     { title: '上行 $/TB', key: 'up_tb', class: 'num', cell: (r) => costCell(r.internet_up_cost_per_tb) },
+    {
+      title: '预估流量费 $/天',
+      key: 'traffic',
+      class: 'num',
+      cell: (r) => h('span', { title: `每天下行 ${f.exp_down_gb} GB × $${fixed(r.internet_down_cost_per_tb, 2)}/TB + 上行 ${f.exp_up_gb} GB × $${fixed(r.internet_up_cost_per_tb, 2)}/TB（1 TB 按 1024 GB）；已含在估算 $/天里` },
+        fixed(r.est_day - r.dph_total * 24, 2)),
+    },
     { title: '下行 Mbps', key: 'down', class: 'num', cell: (r) => fixed(r.inet_down, 0) },
     { title: '上行 Mbps', key: 'up', class: 'num', cell: (r) => fixed(r.inet_up, 0) },
     { title: '内存 GB', key: 'ram', class: 'num', cell: (r) => gb(r.cpu_ram) },
@@ -281,7 +288,7 @@ export async function machinesView(ctx) {
       }, '开机') : null),
     } : null;
     mount(firstToggle, showFirst ? '收起“首次出现”列' : '展开“首次出现”列');
-    const cols = columns(st.disk, rentCol, marks, picks).filter((c) => c && (showFirst || !c.optional)).map((c) => ({ ...c, head: sortHead(c) }));
+    const cols = columns(st.filter, st.disk, rentCol, marks, picks).filter((c) => c && (showFirst || !c.optional)).map((c) => ({ ...c, head: sortHead(c) }));
     mount(tableBox, st.rows.length
       ? table(cols, st.rows, (r) => [r.online ? '' : 'gone', markKind(marks, r.machine_id) ? 'row-' + markKind(marks, r.machine_id) : ''].join(' ').trim() || null)
       : empty('没有符合条件的机器'));
@@ -469,7 +476,7 @@ export async function machinesView(ctx) {
     message, stats, formBox,
     h('section', { class: 'card' }, h('div', { class: 'table-tools' }, firstToggle), tableBox, geoSwitch),
     h('p', { class: 'hint' },
-      '$/h 已含磁盘费（按 ' + st.disk + ' GB 计）。估算 $/天 = 单价 × 24 + 每天下行 GB × 下行流量费 + 每天上行 GB × 上行流量费（$/TB 按 1024 GB 折算）。',
+      '$/h 已含磁盘费（按 ' + st.disk + ' GB 计）。估算 $/天 = 单价 × 24 + 每天下行 GB × 下行流量费 + 每天上行 GB × 上行流量费（$/TB 按 1024 GB 折算），后半段就是“预估流量费”那列。',
       '鼠标停在 GPU 名上可以看 vast 给的算力参考值（DLPerf、TFLOPS、DLP/$/h），不是实测。',
       '“各项最佳”只比在线、符合条件的机器，每项单独比，不合成总分；鼠标停在卡片上有算法说明。',
       '流量费颜色：', h('span', { class: 'cost-ok' }, '< 8'), ' / ', h('span', { class: 'cost-warn' }, '8–20'), ' / ',

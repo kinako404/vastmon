@@ -184,7 +184,7 @@ Signed-in users can also change the password under Settings → 面板密码 (Pa
 Each row is *one machine at one GPU count*: an 8-GPU host lists 1-, 2- and 4-GPU offers at the same time, so with the GPU count filter left open you will see the same machine ID on several rows. That is expected.
 
 - **$/h** already includes disk charges for `-disk` GB.
-- **Est. $/day** = hourly price × 24 + daily download GB × download price + daily upload GB × upload price. Your expected daily traffic is set at the bottom of the filters.
+- **Est. $/day** = hourly price × 24 + daily download GB × download price + daily upload GB × upload price. Your expected daily traffic is set at the bottom of the filters. The traffic part on its own is the sortable *预估流量费 $/天* (estimated bandwidth $/day) column.
 - **各项最佳 (best by measure)**, a row of cards above the table: among the online machines that match the filters, the best one for each measure against the median, with no combined score — lowest $/day, fastest download per $ (download bandwidth ÷ $/h), cheapest bandwidth (for your expected daily traffic), most reliable, and most power per $ (power limit × GPUs ÷ $/h; a power-limited card of the same model is slower under sustained load). Ties go to the lower $/day; the winners' rows get a tag after the machine number.
 - Hover over the GPU name to see vast's reference compute figures: **DLPerf** (vast's generic deep-learning benchmark score for the whole machine), TFLOPS and **DLP/$/h** (= DLPerf ÷ $/h, higher is better value). They are vast's estimates, not measurements. The machine page shows them too.
 - Bandwidth price colors: green < 8, orange 8–20, red ≥ 20 ($ per TB).
